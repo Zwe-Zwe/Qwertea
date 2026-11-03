@@ -1,0 +1,454 @@
+# QWERTY US physical layout: finger, hand and row for every key.
+# row: 0 = number row, 1 = top, 2 = home, 3 = bottom, 4 = space bar.
+# x: horizontal key centre in key widths (row stagger included), used for adjacency.
+# code: Linux evdev key code (what winit reports as the scancode on Linux).
+
+name = "qwerty-us"
+shift_keys = [{ code = 42, hand = "left", finger = "l_pinky" }, { code = 54, hand = "right", finger = "r_pinky" }]
+
+[[keys]]
+base = "`"
+shifted = "~"
+row = 0
+x = 0.5
+finger = "l_pinky"
+hand = "left"
+code = 41
+
+[[keys]]
+base = "1"
+shifted = "!"
+row = 0
+x = 1.5
+finger = "l_pinky"
+hand = "left"
+code = 2
+
+[[keys]]
+base = "2"
+shifted = "@"
+row = 0
+x = 2.5
+finger = "l_ring"
+hand = "left"
+code = 3
+
+[[keys]]
+base = "3"
+shifted = "#"
+row = 0
+x = 3.5
+finger = "l_middle"
+hand = "left"
+code = 4
+
+[[keys]]
+base = "4"
+shifted = "$"
+row = 0
+x = 4.5
+finger = "l_index"
+hand = "left"
+code = 5
+
+[[keys]]
+base = "5"
+shifted = "%"
+row = 0
+x = 5.5
+finger = "l_index"
+hand = "left"
+code = 6
+
+[[keys]]
+base = "6"
+shifted = "^"
+row = 0
+x = 6.5
+finger = "r_index"
+hand = "right"
+code = 7
+
+[[keys]]
+base = "7"
+shifted = "&"
+row = 0
+x = 7.5
+finger = "r_index"
+hand = "right"
+code = 8
+
+[[keys]]
+base = "8"
+shifted = "*"
+row = 0
+x = 8.5
+finger = "r_middle"
+hand = "right"
+code = 9
+
+[[keys]]
+base = "9"
+shifted = "("
+row = 0
+x = 9.5
+finger = "r_ring"
+hand = "right"
+code = 10
+
+[[keys]]
+base = "0"
+shifted = ")"
+row = 0
+x = 10.5
+finger = "r_pinky"
+hand = "right"
+code = 11
+
+[[keys]]
+base = "-"
+shifted = "_"
+row = 0
+x = 11.5
+finger = "r_pinky"
+hand = "right"
+code = 12
+
+[[keys]]
+base = "="
+shifted = "+"
+row = 0
+x = 12.5
+finger = "r_pinky"
+hand = "right"
+code = 13
+
+[[keys]]
+base = "q"
+shifted = "Q"
+row = 1
+x = 2.0
+finger = "l_pinky"
+hand = "left"
+code = 16
+
+[[keys]]
+base = "w"
+shifted = "W"
+row = 1
+x = 3.0
+finger = "l_ring"
+hand = "left"
+code = 17
+
+[[keys]]
+base = "e"
+shifted = "E"
+row = 1
+x = 4.0
+finger = "l_middle"
+hand = "left"
+code = 18
+
+[[keys]]
+base = "r"
+shifted = "R"
+row = 1
+x = 5.0
+finger = "l_index"
+hand = "left"
+code = 19
+
+[[keys]]
+base = "t"
+shifted = "T"
+row = 1
+x = 6.0
+finger = "l_index"
+hand = "left"
+code = 20
+
+[[keys]]
+base = "y"
+shifted = "Y"
+row = 1
+x = 7.0
+finger = "r_index"
+hand = "right"
+code = 21
+
+[[keys]]
+base = "u"
+shifted = "U"
+row = 1
+x = 8.0
+finger = "r_index"
+hand = "right"
+code = 22
+
+[[keys]]
+base = "i"
+shifted = "I"
+row = 1
+x = 9.0
+finger = "r_middle"
+hand = "right"
+code = 23
+
+[[keys]]
+base = "o"
+shifted = "O"
+row = 1
+x = 10.0
+finger = "r_ring"
+hand = "right"
+code = 24
+
+[[keys]]
+base = "p"
+shifted = "P"
+row = 1
+x = 11.0
+finger = "r_pinky"
+hand = "right"
+code = 25
+
+[[keys]]
+base = "["
+shifted = "{"
+row = 1
+x = 12.0
+finger = "r_pinky"
+hand = "right"
+code = 26
+
+[[keys]]
+base = "]"
+shifted = "}"
+row = 1
+x = 13.0
+finger = "r_pinky"
+hand = "right"
+code = 27
+
+[[keys]]
+base = "\\"
+shifted = "|"
+row = 1
+x = 14.0
+finger = "r_pinky"
+hand = "right"
+code = 43
+
+[[keys]]
+base = "a"
+shifted = "A"
+row = 2
+x = 2.25
+finger = "l_pinky"
+hand = "left"
+code = 30
+
+[[keys]]
+base = "s"
+shifted = "S"
+row = 2
+x = 3.25
+finger = "l_ring"
+hand = "left"
+code = 31
+
+[[keys]]
+base = "d"
+shifted = "D"
+row = 2
+x = 4.25
+finger = "l_middle"
+hand = "left"
+code = 32
+
+[[keys]]
+base = "f"
+shifted = "F"
+row = 2
+x = 5.25
+finger = "l_index"
+hand = "left"
+code = 33
+
+[[keys]]
+base = "g"
+shifted = "G"
+row = 2
+x = 6.25
+finger = "l_index"
+hand = "left"
+code = 34
+
+[[keys]]
+base = "h"
+shifted = "H"
+row = 2
+x = 7.25
+finger = "r_index"
+hand = "right"
+code = 35
+
+[[keys]]
+base = "j"
+shifted = "J"
+row = 2
+x = 8.25
+finger = "r_index"
+hand = "right"
+code = 36
+
+[[keys]]
+base = "k"
+shifted = "K"
+row = 2
+x = 9.25
+finger = "r_middle"
+hand = "right"
+code = 37
+
+[[keys]]
+base = "l"
+shifted = "L"
+row = 2
+x = 10.25
+finger = "r_ring"
+hand = "right"
+code = 38
+
+[[keys]]
+base = ";"
+shifted = ":"
+row = 2
+x = 11.25
+finger = "r_pinky"
+hand = "right"
+code = 39
+
+[[keys]]
+base = "'"
+shifted = "\""
+row = 2
+x = 12.25
+finger = "r_pinky"
+hand = "right"
+code = 40
+
+[[keys]]
+base = "z"
+shifted = "Z"
+row = 3
+x = 2.75
+finger = "l_pinky"
+hand = "left"
+code = 44
+
+[[keys]]
+base = "x"
+shifted = "X"
+row = 3
+x = 3.75
+finger = "l_ring"
+hand = "left"
+code = 45
+
+[[keys]]
+base = "c"
+shifted = "C"
+row = 3
+x = 4.75
+finger = "l_middle"
+hand = "left"
+code = 46
+
+[[keys]]
+base = "v"
+shifted = "V"
+row = 3
+x = 5.75
+finger = "l_index"
+hand = "left"
+code = 47
+
+[[keys]]
+base = "b"
+shifted = "B"
+row = 3
+x = 6.75
+finger = "l_index"
+hand = "left"
+code = 48
+
+[[keys]]
+base = "n"
+shifted = "N"
+row = 3
+x = 7.75
+finger = "r_index"
+hand = "right"
+code = 49
+
+[[keys]]
+base = "m"
+shifted = "M"
+row = 3
+x = 8.75
+finger = "r_index"
+hand = "right"
+code = 50
+
+[[keys]]
+base = ","
+shifted = "<"
+row = 3
+x = 9.75
+finger = "r_middle"
+hand = "right"
+code = 51
+
+[[keys]]
+base = "."
+shifted = ">"
+row = 3
+x = 10.75
+finger = "r_ring"
+hand = "right"
+code = 52
+
+[[keys]]
+base = "/"
+shifted = "?"
+row = 3
+x = 11.75
+finger = "r_pinky"
+hand = "right"
+code = 53
+
+[[keys]]
+base = " "
+row = 4
+x = 7.0
+finger = "thumb"
+hand = "either"
+code = 57
+
+[[keys]]
+base = "\n"
+row = 2
+x = 13.5
+finger = "r_pinky"
+hand = "right"
+code = 28
+
+[[keys]]
+base = "\t"
+row = 1
+x = 0.75
+finger = "l_pinky"
+hand = "left"
+code = 15

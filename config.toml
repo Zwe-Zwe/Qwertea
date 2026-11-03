@@ -1,0 +1,31 @@
+[general]
+mode = "prose"
+layout = "qwerty-us"
+db_path = "data/qwertea.db"
+
+[client]
+font_size = 28
+theme = "dark"
+stop_on_error = false
+present_mode = "mailbox"        # mailbox | immediate | fifo
+timestamp_source = "winit"      # winit | evdev
+keyboard_device = ""            # e.g. /dev/input/event3 (for evdev)
+
+[derive]
+think_pause_ms = 2500
+min_samples_for_stats = 3
+
+[model]
+weight_error = 0.6
+weight_latency = 0.4
+uncertainty_bonus = 0.25
+holdout_fraction = 0.05
+
+[lesson]
+target_mix = { weak = 0.6, review = 0.2, normal = 0.2 }
+accuracy_target = [0.92, 0.96]
+min_pending_queue = 3
+lesson_chars = [150, 300]
+
+[calibration]
+sittings = 3

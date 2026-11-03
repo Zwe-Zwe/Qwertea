@@ -1,0 +1,44 @@
+[package]
+name = "qwertea-client"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+description = "Qwertea typing tutor client: UI and keystroke capture"
+license = "MIT"
+
+[[bin]]
+name = "qwertea"
+path = "src/main.rs"
+
+[[bin]]
+name = "timing_check"
+path = "src/bin/timing_check.rs"
+
+[[bin]]
+name = "roundtrip_fixture"
+path = "src/bin/roundtrip_fixture.rs"
+
+[lib]
+name = "qwertea_client"
+path = "src/lib.rs"
+
+[features]
+default = []
+evdev-capture = ["dep:evdev", "dep:libc"]
+
+[dependencies]
+egui = "0.37"
+egui-winit = { version = "0.37", default-features = false, features = ["wayland", "x11"] }
+egui-wgpu = { version = "0.37", features = ["winit", "wayland", "x11"] }
+winit = "0.30"
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+pollster = "0.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = { version = "0.13", optional = true }
+libc = { version = "0.2", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
