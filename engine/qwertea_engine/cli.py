@@ -98,8 +98,12 @@ def serve(
     lock.write_text(str(os.getpid()))
     typer.echo(f"qwertea-engine serving {cfg.db_path} (pid {os.getpid()})", err=True)
     last_report = 0.0
+    parent = int(os.environ.get("QWERTEA_PARENT_PID", "0") or 0)
     try:
         while True:
+            if parent and not _alive(parent):
+                typer.echo("the Qwertea app that started this engine has exited; stopping", err=True)
+                break
             try:
                 res = eng.run_once()
                 if res.derived or res.queued or res.calibration_planned:
@@ -118,6 +122,19 @@ def serve(
         pass
     finally:
         lock.unlink(missing_ok=True)
+
+
+def _alive(pid: int) -> bool:
+    """Is process `pid` still running? (Only checked on POSIX.)"""
+    if sys.platform == "win32":
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 @app.command()

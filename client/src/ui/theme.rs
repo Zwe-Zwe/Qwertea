@@ -102,7 +102,7 @@ pub fn apply(ctx: &egui::Context, p: &Palette) {
     v.window_corner_radius = CornerRadius::same(10);
     for (w, fill) in [
         (&mut v.widgets.noninteractive, p.bg),
-        (&mut v.widgets.inactive, p.panel),
+        (&mut v.widgets.inactive, p.panel_hi),
         (&mut v.widgets.hovered, p.panel_hi),
         (&mut v.widgets.active, p.panel_hi),
         (&mut v.widgets.open, p.panel_hi),

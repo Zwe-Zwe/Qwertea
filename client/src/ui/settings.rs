@@ -10,6 +10,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let p = app.palette;
     let width = ui.available_width().min(760.0);
     egui::ScrollArea::vertical()
+        .id_salt("settings_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {

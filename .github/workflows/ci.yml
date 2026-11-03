@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client
+      - uses: astral-sh/setup-uv@v6
+      - name: Engine dependencies
+        run: uv --project engine sync --all-extras
+      - name: Lint
+        run: make lint
+      - name: Test
+        run: make test

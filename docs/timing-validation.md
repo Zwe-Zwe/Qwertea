@@ -40,6 +40,17 @@ Environment: cloud container, Xvfb with no window manager and no vsync, software
    On a real display with Fifo, a blocking present can hold the loop for up to a whole vsync interval (16.7 ms at 60 Hz). Decision **D10**: the typing view repaints only on input and on a 10 Hz HUD tick. That cut UI busy time from about 81 % to about 5 %.
 3. Xvfb has no vsync, so Fifo behaves like Mailbox here. The Fifo rows say nothing about blocking presents on real hardware.
 
+## First real-machine run (winit only)
+The first run on the author's Linux machine had `--evdev` requested but no `input` group membership, so only window stamps were recorded. The verdict was again "not frame-quantized".
+
+It also reported `Instant::now()` at about 1.2 µs resolution and 1.4 µs per read, roughly 40× slower than the cloud VM. That usually means the kernel clock source is not the TSC:
+
+```
+cat /sys/devices/system/clocksource/clocksource0/current_clocksource
+```
+
+If it says `hpet` or `acpi_pm`, the kernel distrusted the TSC; virtual machines often do this. Microsecond resolution is still far finer than keystroke timing needs, so it is not a problem for Qwertea, just worth knowing.
+
 ## Still open: run on the real machine
 These steps need a physical keyboard and display, so they can't be done from the cloud container:
 

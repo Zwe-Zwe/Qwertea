@@ -113,6 +113,8 @@ impl EngineProc {
         if let Some(path) = &cfg.path {
             cmd.env("QWERTEA_CONFIG", path);
         }
+        // The engine exits by itself if this app dies without stopping it.
+        cmd.env("QWERTEA_PARENT_PID", std::process::id().to_string());
         match log {
             Ok(f) => cmd.stderr(f),
             Err(_) => cmd.stderr(Stdio::null()),

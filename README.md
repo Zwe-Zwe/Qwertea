@@ -1,68 +1,162 @@
 # Qwertea
 
-A personal, local-first, adaptive typing tutor. It runs a calibration session to learn your level, weak spots and error habits. After that, it builds each new lesson from the data collected in all your past sessions.
+**A typing tutor that learns your weak spots.** Qwertea looks like the typing sites you know: clean text, a caret, live WPM. But its lessons are not fixed. Each one is brewed from *your* history: the keys, letter pairs and words you get wrong or type slowly, measured against your own baseline by a statistical model that updates after every lesson.
 
-- **`client/`** (Rust): the window, keystroke capture and typing screen.
-- **`engine/`** (Python): analysis and lesson generation.
-- The two programs never call each other. They share one SQLite database, `data/qwertea.db`, in WAL mode.
+Everything runs locally. No accounts, no cloud, no telemetry.
 
-`QWERTEA_SPEC.md` is the full specification. `docs/decisions.md` lists every deviation from it and the reason.
+![Typing](docs/screenshots/typing.png)
 
-## Status
-
-| Milestone | State |
+| | |
 |---|---|
-| M0 Timing spike | Built. Verified headless; the real-keyboard evdev numbers are still to be recorded in `docs/timing-validation.md` |
-| M1 Schema + DB layer | Done. Round-trip test passes |
-| M2–M8 | Not started |
+| ![Home](docs/screenshots/home.png) | ![Results](docs/screenshots/summary.png) |
+| ![Stats](docs/screenshots/stats.png) | ![Weak spots](docs/screenshots/stats_keyboard.png) |
 
-## Requirements
-- Rust (stable, 1.95 or newer)
-- Python 3.11+ and [uv](https://docs.astral.sh/uv/)
-- **Linux** (primary target). You need the usual winit and wgpu runtime libraries: `libxkbcommon`, `libxkbcommon-x11` on X11, `libwayland-client` on Wayland, and a Vulkan or GL driver.
-- Windows and macOS: builds without the `evdev-capture` feature. Timing then relies only on the winit receipt stamp (see the caveat below).
+## Features
 
-## Setup
+- **Distraction-free typing screen** in the style of popular typing sites: three visible lines that scroll with the caret, correct, wrong and pending characters in different colours, and a live clock, progress and WPM. Esc pauses; paused time is never counted. Losing window focus pauses automatically.
+- **Results after every lesson:** WPM, raw WPM, accuracy, consistency, a per-second speed chart with error markers, correct/incorrect/fixed characters, your slowest letter pairs, and the keys you missed.
+- **Dynamic lessons, not fixed exercises.** After a one-off calibration (3 short sittings that sample every key, letter pair and symbol), every lesson mixes:
+  - **focused drill:** real words chosen because they contain your weakest patterns, plus generated pseudo-words for rare letter pairs;
+  - **review:** patterns you improved, brought back on an expanding schedule so they stick;
+  - **natural prose:** real sentences picked because they contain your targets.
+- **Difficulty that follows you:** lesson length, word length and drill share adjust to keep your accuracy in the 92–96 % band.
+- **Stats:** speed and accuracy history, a keyboard heatmap of weakness, and your weakest keys, letter pairs and words.
+- **A full HTML report** with:
+  - a learning curve with a power-law fit;
+  - error types;
+  - behaviour (slow-down after errors, rhythm, fatigue);
+  - whether drilling actually helps, measured against held-out control items;
+  - an explainable LightGBM model of what drives your errors and latency.
+- **Accurate timing:** keystrokes are timestamped before the UI touches them, and kernel timestamps are optional on Linux. See [docs/timing-validation.md](docs/timing-validation.md).
+- **Four themes** (dark, light, nord, matcha), adjustable text size, and an optional stop-on-error mode.
+
+## Quick start
+
+You need [Rust](https://rustup.rs) (stable) and [uv](https://docs.astral.sh/uv/getting-started/installation/) (Python 3.11+ is installed by uv if needed).
+
 ```bash
-make setup        # fetch crates, create the engine venv, create data/qwertea.db
-make test         # Rust unit tests + engine tests (including the Rust↔Python round trip)
-make lint         # cargo fmt/clippy -D warnings, ruff, mypy
+git clone https://github.com/Zwe-Zwe/Qwertea.git
+cd Qwertea
+make run
 ```
 
-You can also run things by hand:
+`make run` installs the engine's Python dependencies, builds the app in release mode and starts it. The app starts the analysis engine in the background by itself. After the first build, `make run` (or `./client/target/release/qwertea` from the repository folder) starts in a second.
+
+Without `make` (e.g. on Windows):
+
 ```bash
-uv --project engine run qwertea-engine init     # create DB from schema, load layout
-(cd client && cargo run --bin qwertea)
+uv --project engine sync --all-extras
+cd client
+cargo run --release --bin qwertea
 ```
 
-`config.toml` in the repository root holds the layout, thresholds and paths. Set `QWERTEA_CONFIG` to use a different file.
+**Linux packages:** winit and wgpu need the usual desktop libraries, e.g. on Debian/Ubuntu `libxkbcommon-x11-0`, `libwayland-client0` and a Vulkan or OpenGL driver (`mesa-vulkan-drivers`). They are present on almost every desktop install.
 
-## Timing check (M0)
-```bash
-make timing-check
-# or, on Linux with kernel timestamps:
-cd client && cargo run --release --features evdev-capture --bin timing_check -- --evdev
+## How to use it
+
+1. **Calibrate** (about 3 × 15 minutes). Home shows "Sitting 1 of 3 · Phase 2 of 6 · ~9 min left". Each phase has a short intro; stop between phases whenever you like, and progress is kept. If you are impatient, *skip calibration* starts adaptive lessons from whatever you have typed so far.
+2. **Practise.** Press Enter for the next lesson. The *focus* chips on Home show what the lesson targets.
+3. **Check progress** under *stats*, or open the full *report*.
+
+| Key | Action |
+|---|---|
+| Enter | start / next lesson |
+| Esc | pause while typing (then r restart · s skip · q quit to menu); Esc again resumes |
+| Backspace | move back one character |
+
+## How it works
+
+Qwertea is two programs that share one SQLite database (`data/qwertea.db`):
+
 ```
-Type for about a minute, then press Esc. Copy the printed report into `docs/timing-validation.md`.
+client/ (Rust)                         engine/ (Python)
+window, typing screen,     ──────►     derives keystrokes, fits the model,
+keystroke capture          SQLite      writes the next lessons and the report
+           ◄──────────────────────────
+```
 
-### evdev permissions (Linux)
-Kernel timestamps are read from `/dev/input/event*`, which by default only the `input` group can read:
+- **Capture:** the client stamps every key event the moment the OS delivers it, before the UI runs. While you type it writes nothing to disk. When the lesson ends, it saves the raw key-down and key-up events in one transaction.
+- **Derivation:** the engine turns raw events into labelled keystrokes. That covers:
+  - timing: time between keys and how long each key is held, with pauses removed;
+  - error type: substitution, slip onto a neighbouring key, transposition, omission or insertion;
+  - corrections: how long you took to notice an error and fix it, and how much you slowed down after it.
+- **Weakness model:** every key, letter pair, triple and word gets:
+  - a **Bayesian error rate** (Beta posterior) that borrows strength from simpler patterns when data is thin (triple → pair → key → your overall rate);
+  - a **robust latency score** against your own median.
+
+  The weakness score combines the two.
+- **Lesson choice:** **Thompson sampling** draws from those posteriors, so uncertain patterns get explored and confirmed weak ones get drilled. A few weak patterns are deliberately held out as a control group, so the report can show whether drilling really helps. Improved patterns go on a spaced-review ladder.
+- **Insight model:** a **LightGBM** model predicts errors and latency from context (finger, hand, row, previous key, rhythm, fatigue). Its SHAP values in the report explain *why* you make mistakes.
+
+The model is checked by a simulated typist with planted weaknesses. The test suite asserts that calibration recovers them and that adaptive lessons target them (`engine/tests/test_sim.py`).
+
+The full design is in [QWERTEA_SPEC.md](QWERTEA_SPEC.md). Every deviation from it is recorded in [docs/decisions.md](docs/decisions.md).
+
+![Report](docs/screenshots/report.png)
+
+## Configuration
+
+Settings changed in the app are saved to `config.toml` (comments kept). Other options:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `general.layout` | `qwerty-us` | keyboard layout (data file in `engine/data/layouts/`) |
+| `client.stop_on_error` | `false` | caret waits for the right key |
+| `client.present_mode` | `mailbox` | `mailbox` / `immediate` / `fifo` |
+| `client.timestamp_source` | `winit` | `evdev` for kernel timestamps (Linux, see below) |
+| `lesson.accuracy_target` | `[0.92, 0.96]` | difficulty control band |
+| `lesson.lesson_chars` | `[150, 300]` | lesson length range |
+| `calibration.sittings` | `3` | 1–3 calibration sittings |
+| `engine.autostart` | `true` | start the engine with the app |
+
+### Kernel timestamps (Linux, optional)
+
+For the most accurate timing, build with `--features evdev-capture` and set `timestamp_source = "evdev"`. Reading `/dev/input` requires the `input` group:
+
 ```bash
 sudo usermod -aG input "$USER"   # then log out and back in
-ls /dev/input/by-id/*-kbd        # find your keyboard; optionally set client.keyboard_device
-```
-If the device can't be opened, Qwertea falls back to winit stamps. Being in the `input` group lets your user read all input devices, so only do this on a machine you trust.
-
-### Platform timing caveat
-Without evdev (on Windows, macOS, or Linux without the feature), the stamp is when the window event *arrived* at the app. It is not frame-quantized, but it includes OS and compositor delivery delay. That delay is roughly constant and mostly cancels out in per-key comparisons, but absolute latencies carry it.
-
-## Repository layout
-```
-client/   Rust crate: capture.rs, session.rs (LessonRun), db.rs, gfx.rs, config.rs, timing.rs
-engine/   Python package qwertea_engine (db, layouts, cli), tests, data/layouts/qwerty-us.toml
-schema/   001_init.sql, the authoritative schema, applied by both sides
-docs/     decisions.md, timing-validation.md
-data/     runtime data (git-ignored)
 ```
 
-Everything stays on your machine. Nothing is collected or sent anywhere.
+Membership lets your user read all input devices, so only do this on a machine you trust. Without it, Qwertea falls back to window timestamps and shows a notice.
+
+## Engine commands
+
+The app runs `qwertea-engine serve` for you; the other commands are for power users.
+
+```bash
+uv --project engine run qwertea-engine --help
+```
+
+| Command | What it does |
+|---|---|
+| `serve` | watch the database, analyse finished lessons, keep 3 lessons queued, refresh the report |
+| `run-once` | the same, once |
+| `plan-calibration` | (re)create the calibration plan and print its coverage report |
+| `rebuild` | re-derive everything from the raw key events |
+| `report` | write `data/reports/index.html` |
+| `recalibrate` | queue a short checkpoint passage |
+| `fetch-corpus` | rebuild the prose corpus from public-domain books |
+
+## Development
+
+```bash
+make test    # Rust unit tests + engine tests (incl. Rust↔Python round trip and the simulator)
+make lint    # cargo fmt/clippy -D warnings, ruff, mypy --strict
+make timing-check
+```
+
+```
+client/   Rust app: capture, LessonRun state machine, DB, screens (ui/), timing spike
+engine/   Python package qwertea_engine: derive, model/, select, review, generators/, report/
+schema/   001_init.sql + numbered migrations (authoritative, applied by both sides)
+docs/     decisions, timing validation, screenshots
+data/     your local database, report and logs (git-ignored)
+```
+
+## Privacy
+
+Your typing data lives in `data/` on your computer and is never sent anywhere. Delete it with `make clean-data`.
+
+## Licence
+
+MIT. The bundled prose corpus is derived from public-domain Project Gutenberg books.

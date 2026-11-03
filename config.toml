@@ -10,6 +10,7 @@ stop_on_error = false
 present_mode = "mailbox"        # mailbox | immediate | fifo
 timestamp_source = "winit"      # winit | evdev
 keyboard_device = ""            # e.g. /dev/input/event3 (for evdev)
+live_wpm = true                 # show live WPM while typing
 
 [derive]
 think_pause_ms = 2500
@@ -29,3 +30,7 @@ lesson_chars = [150, 300]
 
 [calibration]
 sittings = 3
+
+[engine]
+autostart = true                # the app starts `qwertea-engine serve` for you
+command = ["uv", "run", "--project", "engine", "qwertea-engine", "serve"]

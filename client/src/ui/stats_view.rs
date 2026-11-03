@@ -42,7 +42,7 @@ fn table(ui: &mut Ui, app: &App, id: &str, rows: &[ItemStat]) {
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     let p = app.palette;
-    ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    ScrollArea::vertical().id_salt("stats_scroll").auto_shrink([false, false]).show(ui, |ui| {
         let width = ui.available_width().min(1000.0);
         ui.vertical_centered(|ui| {
             ui.set_max_width(width);

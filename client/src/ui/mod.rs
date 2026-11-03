@@ -114,8 +114,7 @@ fn top_bar(app: &mut App, ui: &mut Ui) {
             r.on_hover_text(app.engine.status.label());
             if ui
                 .add(
-                    egui::Button::new(RichText::new("report").size(13.0).color(p.sub))
-                        .frame(false),
+                    egui::Button::new(RichText::new("report").size(13.0).color(p.sub)).frame(false),
                 )
                 .on_hover_text("Open the full HTML report in your browser")
                 .clicked()
