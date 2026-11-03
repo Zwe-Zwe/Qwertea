@@ -6,6 +6,8 @@ Each entry records a choice the spec left open, or a deliberate deviation, and w
 `winit 0.30`, `egui`/`egui-winit`/`egui-wgpu 0.37` (which pins `wgpu 30`), `rusqlite 0.41` (bundled), `evdev 0.13`.
 egui 0.37 is the newest egui and is built against winit 0.30, so the versions match. `eframe` is not a dependency.
 
+egui 0.37 no longer bundles fonts unless the `default_fonts` feature is on (`eframe` normally turns it on). The client enables it explicitly; without it every glyph renders as an empty box.
+
 ## D2: `TimestampSource::stamp` returns `Option<u64>`
 The spec's signature returns `u64`. A kernel source can legitimately have no observation for a UI event: the event was synthetic, came from another device, or the reader thread dropped it. Returning `Option` avoids a magic sentinel value. `WinitReceiptStamp` always returns `Some`.
 
