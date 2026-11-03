@@ -15,8 +15,10 @@ from pathlib import Path
 
 from .paths import SCHEMA_DIR
 
-SCHEMA_VERSION = 1
 SCHEMA_FILE = SCHEMA_DIR / "001_init.sql"
+# Numbered migrations applied after 001, in order: (version, file).
+MIGRATIONS = [(2, SCHEMA_DIR / "002_lesson_meta.sql")]
+SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 
 def utc_now() -> str:
@@ -37,15 +39,41 @@ def connect(path: Path | str) -> sqlite3.Connection:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> bool:
-    """Apply `schema/001_init.sql` when `schema_version` is missing. Returns True if applied."""
+    """Apply `001_init.sql` when `schema_version` is missing, then any newer migrations.
+
+    Returns True if anything was applied. Each step runs in its own transaction and
+    re-checks the version inside it, so the client and engine can race safely.
+    """
+    applied = False
     row = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'"
     ).fetchone()
-    if row is not None:
-        return False
-    sql = SCHEMA_FILE.read_text(encoding="utf-8")
-    conn.executescript(f"BEGIN IMMEDIATE;\n{sql}\nCOMMIT;")
-    return True
+    if row is None:
+        sql = SCHEMA_FILE.read_text(encoding="utf-8")
+        conn.execute("BEGIN IMMEDIATE")
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'"
+        ).fetchone()
+        if exists is None:
+            for stmt in _statements(sql):
+                conn.execute(stmt)
+            applied = True
+        conn.execute("COMMIT")
+    for version, path in MIGRATIONS:
+        conn.execute("BEGIN IMMEDIATE")
+        current = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+        if current < version:
+            for stmt in _statements(path.read_text(encoding="utf-8")):
+                conn.execute(stmt)
+            applied = True
+        conn.execute("COMMIT")
+    return applied
+
+
+def _statements(sql: str) -> list[str]:
+    """Split a schema file into statements (no semicolons inside our SQL literals)."""
+    lines = [ln.split("--", 1)[0] for ln in sql.splitlines()]
+    return [s.strip() for s in "\n".join(lines).split(";") if s.strip()]
 
 
 def schema_version(conn: sqlite3.Connection) -> int | None:
