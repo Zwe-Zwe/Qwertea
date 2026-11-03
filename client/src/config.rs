@@ -75,7 +75,7 @@ impl Default for Client {
     fn default() -> Self {
         Self {
             font_size: 28.0,
-            theme: "dark".into(),
+            theme: "sencha".into(),
             stop_on_error: false,
             present_mode: PresentModePref::Mailbox,
             timestamp_source: TimestampSourceKind::Winit,

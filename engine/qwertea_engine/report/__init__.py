@@ -30,8 +30,8 @@ from ..layouts import Layout
 from ..model import gbdt
 from ..model.observations import collect
 
-BG, FG, MUTED, ACCENT, GRID = "#1e1f24", "#e8e6e3", "#9a9ca5", "#e2b714", "#34363d"
-CMAP = LinearSegmentedColormap.from_list("weak", ["#2c6e49", "#3a3d45", "#c0392b"])
+BG, FG, MUTED, ACCENT, GRID = "#141c18", "#e9e4d4", "#809187", "#8ed1a5", "#29362f"
+CMAP = LinearSegmentedColormap.from_list("weak", ["#8ed1a5", "#29362f", "#ef7a6b"])
 
 
 def _png(fig: Any) -> str:
@@ -71,7 +71,7 @@ def learning_chart(lessons: list[Any], curve: dict[str, float] | None) -> str | 
     ax.set_xlabel("lesson")
     ax.set_ylabel("WPM")
     ax2 = ax.twinx()
-    ax2.plot(xs, [100 * p[2] for p in pts], color="#5dade2", lw=1, alpha=0.7, label="accuracy %")
+    ax2.plot(xs, [100 * p[2] for p in pts], color="#e3b87c", lw=1, alpha=0.7, label="accuracy %")
     ax2.set_ylim(70, 100.5)
     ax2.tick_params(colors=MUTED)
     ax2.set_ylabel("accuracy %", color=MUTED)
@@ -281,7 +281,7 @@ def build(
         if insight
         else None,
         "shap_lat": bar_chart(
-            insight.latency_importance, "What drives latency (mean |SHAP|)", "#5dade2"
+            insight.latency_importance, "What drives latency (mean |SHAP|)", "#e3b87c"
         )
         if insight
         else None,
@@ -319,10 +319,10 @@ def build(
 :root{{color-scheme:dark}}body{{background:{BG};color:{FG};font:15px/1.5 system-ui,sans-serif;margin:0;padding:24px;max-width:1080px;margin:auto}}
 h1{{color:{ACCENT};font-weight:600;margin:0 0 4px}}h2{{font-weight:500;border-bottom:1px solid {GRID};padding-bottom:4px;margin-top:36px}}
 .muted{{color:{MUTED}}}.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:20px 0}}
-.card{{background:#26282e;border-radius:10px;padding:14px}}.card b{{display:block;font-size:26px;color:{ACCENT};font-weight:600}}
+.card{{background:#1c2621;border-radius:10px;padding:14px}}.card b{{display:block;font-size:26px;color:{ACCENT};font-weight:600}}
 table{{border-collapse:collapse;width:100%;font-size:14px}}td,th{{padding:5px 8px;border-bottom:1px solid {GRID};text-align:left}}
 th{{color:{MUTED};font-weight:500}}.mono{{font-family:ui-monospace,monospace}}img{{max-width:100%}}
-.tag{{background:#3a3d45;border-radius:4px;padding:0 5px;font-size:11px;color:{MUTED}}}.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
+.tag{{background:#29362f;border-radius:4px;padding:0 5px;font-size:11px;color:{MUTED}}}.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
 @media(max-width:700px){{.grid2{{grid-template-columns:1fr}}}}
 </style></head><body>
 <h1>Qwertea</h1><div class=muted>Report generated {now}. Everything here was computed on your machine.</div>

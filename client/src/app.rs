@@ -52,6 +52,10 @@ pub struct Finished {
     pub lesson: PendingLesson,
     pub stats: LessonStats,
     pub saved: bool,
+    /// Your averages over the last 10 lessons *before* this one: (wpm, accuracy).
+    pub recent: Option<(f64, f64)>,
+    /// Best WPM before this lesson.
+    pub best_before: Option<f64>,
 }
 
 /// Lesson history for the stats screen and home overview.
@@ -87,6 +91,8 @@ pub struct App {
     pub intro: Option<PendingLesson>,
     pub last: Option<Finished>,
     pub next: Option<PendingLesson>,
+    /// The next lesson's targets with what the model knows about each.
+    pub next_targets: Vec<(db::Target, Option<db::ItemStat>)>,
     next_checked: Instant,
     pub calib: Option<CalibrationProgress>,
     pub level: Option<LevelInfo>,
@@ -139,6 +145,7 @@ impl App {
             intro: None,
             last: None,
             next: None,
+            next_targets: vec![],
             next_checked: Instant::now() - Duration::from_secs(10),
             calib: None,
             level: None,
@@ -210,6 +217,20 @@ impl App {
         self.next_checked = Instant::now();
         let Some(conn) = &self.conn else { return };
         self.next = db::next_pending(conn).ok().flatten();
+        let mode = self.cfg.general.mode.clone();
+        self.next_targets = self
+            .next
+            .as_ref()
+            .map(|l| {
+                l.targets()
+                    .into_iter()
+                    .map(|t| {
+                        let st = db::item_stat(conn, &mode, &t.kind, &t.item).ok().flatten();
+                        (t, st)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         self.calib = db::calibration_progress(conn).ok().flatten();
         self.level = db::latest_level(conn, &self.cfg.general.mode)
             .ok()
@@ -415,10 +436,20 @@ impl App {
             if a.run.state() == RunState::Finished && !a.finished_shown {
                 a.finished_shown = true;
                 let stats = stats::compute(&a.lesson.text, a.run.events());
+                let recent = self.history.recent(10);
+                let recent = (!recent.is_empty()).then(|| {
+                    let n = recent.len() as f64;
+                    (
+                        recent.iter().map(|l| l.1).sum::<f64>() / n,
+                        recent.iter().map(|l| l.2).sum::<f64>() / n,
+                    )
+                });
                 self.last = Some(Finished {
                     lesson: a.lesson.clone(),
                     stats,
                     saved: false,
+                    recent,
+                    best_before: self.history.best_wpm(),
                 });
                 self.screen = Screen::Summary;
             }
@@ -556,6 +587,9 @@ impl App {
     }
 
     pub fn apply_theme(&mut self, ctx: &egui::Context) {
+        if self.theme_applied.is_none() {
+            theme::install_fonts(ctx);
+        }
         if self.theme_applied.as_deref() != Some(self.cfg.client.theme.as_str()) {
             self.palette = theme::palette(&self.cfg.client.theme);
             theme::apply(ctx, &self.palette);

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml/badge.svg)](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml) · version 1.0.0 · [changelog](CHANGELOG.md)
 
-**A typing tutor that learns your weak spots.** Qwertea looks like the typing sites you know: clean text, a caret, live WPM. But its lessons are not fixed. Each one is brewed from *your* history: the keys, letter pairs and words you get wrong or type slowly, measured against your own baseline by a statistical model that updates after every lesson.
+**A typing tutor that learns your weak spots.** Qwertea is calm and minimal: a sheet of text, a caret and a few honest numbers. But its lessons are not fixed. Each one is brewed from *your* history: the keys, letter pairs and words you get wrong or type slowly, measured against your own baseline by a statistical model that updates after every lesson.
 
 Everything runs locally. No accounts, no cloud, no telemetry.
 
@@ -10,19 +10,24 @@ Everything runs locally. No accounts, no cloud, no telemetry.
 
 | | |
 |---|---|
-| ![Home](docs/screenshots/home.png) | ![Results](docs/screenshots/summary.png) |
-| ![Stats](docs/screenshots/stats.png) | ![Weak spots](docs/screenshots/stats_keyboard.png) |
+| ![Practice](docs/screenshots/home.png) | ![Lesson notes](docs/screenshots/summary.png) |
+| ![Progress](docs/screenshots/stats.png) | ![Weak spots](docs/screenshots/stats_keyboard.png) |
+| ![Chai theme](docs/screenshots/light.png) | ![Settings](docs/screenshots/settings.png) |
 
 ## Features
 
-- **Distraction-free typing screen** in the style of popular typing sites: three visible lines that scroll with the caret, correct, wrong and pending characters in different colours, and a live clock, progress and WPM. Esc pauses; paused time is never counted. Losing window focus pauses automatically.
-- **Results after every lesson:** WPM, raw WPM, accuracy, consistency, a per-second speed chart with error markers, correct/incorrect/fixed characters, your slowest letter pairs, and the keys you missed.
+- **A quiet typing sheet:** the lesson on a card with a progress edge and an underline caret. **The patterns the lesson is training are tinted in the text still to come**, so you always know what you are practising. Speed, accuracy, time and characters to go sit underneath. Esc pauses, and paused time is never counted; losing window focus pauses automatically.
+- **Lesson notes after every lesson:**
+  - a plain-language verdict against *your own* recent lessons and personal best;
+  - a per-word rhythm strip showing where you sped up, slowed down or slipped;
+  - how each trained pattern went ("ock: 6/6 clean");
+  - the keys you missed and your slowest letter pairs.
 - **Dynamic lessons, not fixed exercises.** After a one-off calibration (3 short sittings that sample every key, letter pair and symbol), every lesson mixes:
   - **focused drill:** real words chosen because they contain your weakest patterns, plus generated pseudo-words for rare letter pairs;
   - **review:** patterns you improved, brought back on an expanding schedule so they stick;
   - **natural prose:** real sentences picked because they contain your targets.
 - **Difficulty that follows you:** lesson length, word length and drill share adjust to keep your accuracy in the 92–96 % band.
-- **Stats:** speed and accuracy history, a keyboard heatmap of weakness, and your weakest keys, letter pairs and words.
+- **Progress:** your level, speed and accuracy trends, a keycap heatmap against your own baseline, and ranked weak keys, letter pairs and words.
 - **A full HTML report** with:
   - a learning curve with a power-law fit;
   - error types;
@@ -30,7 +35,7 @@ Everything runs locally. No accounts, no cloud, no telemetry.
   - whether drilling actually helps, measured against held-out control items;
   - an explainable LightGBM model of what drives your errors and latency.
 - **Accurate timing:** keystrokes are timestamped before the UI touches them, and kernel timestamps are optional on Linux. See [docs/timing-validation.md](docs/timing-validation.md).
-- **Four themes** (dark, light, nord, matcha), adjustable text size, and an optional stop-on-error mode.
+- **Four tea themes** (Sencha, Chai, Earl Grey, Oolong) and Atkinson Hyperlegible type. Adjustable text size and an optional stop-on-error mode.
 
 ## Install
 
@@ -70,9 +75,9 @@ cargo run --release --bin qwertea
 
 ## How to use it
 
-1. **Calibrate** (about 3 × 15 minutes). Home shows "Sitting 1 of 3 · Phase 2 of 6 · ~9 min left". Each phase has a short intro; stop between phases whenever you like, and progress is kept. If you are impatient, *skip calibration* starts adaptive lessons from whatever you have typed so far.
-2. **Practise.** Press Enter for the next lesson. The *focus* chips on Home show what the lesson targets.
-3. **Check progress** under *stats*, or open the full *report*.
+1. **Calibrate** (about 3 × 15 minutes). Practice shows where you are with a step tracker per sitting. Each phase has a short intro; stop between phases whenever you like, and progress is kept. If you are impatient, *skip calibration* starts adaptive lessons from whatever you have typed so far.
+2. **Practise.** Press Enter for the next lesson. *Up next* lists what it trains, each with the model's current error rate for it.
+3. **Check progress** under *Progress*, or open the *Full report*.
 
 | Key | Action |
 |---|---|
@@ -176,4 +181,4 @@ Your typing data lives on your computer and is never sent anywhere: in `~/.local
 
 ## Licence
 
-MIT. The bundled prose corpus is derived from public-domain Project Gutenberg books.
+MIT. The bundled prose corpus is derived from public-domain Project Gutenberg books. The Atkinson Hyperlegible fonts (Braille Institute of America) are under the SIL Open Font License; see `client/assets/fonts/OFL.txt`.

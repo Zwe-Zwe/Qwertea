@@ -3,6 +3,31 @@
 All notable changes to Qwertea are listed here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - candidate for 1.0.1 (branch `new_ui`)
+
+### Changed
+- A new visual identity of Qwertea's own, replacing a look that was too close
+  to other typing sites:
+  - tea themes: Sencha (default), Chai, Earl Grey and Oolong; 1.0.0 theme
+    names map to them automatically;
+  - Atkinson Hyperlegible type (SIL OFL);
+  - a left sidebar with icons;
+  - a steaming-cup app icon.
+- Typing screen: the lesson sits on a sheet with a progress edge and an
+  underline caret. The lesson's training targets are tinted in the text
+  still to come. A labelled stat strip sits under the sheet.
+- Lesson notes replace the results screen:
+  - a verdict compared with your own recent lessons and personal best;
+  - a per-word rhythm strip;
+  - per-target results;
+  - details.
+- Practice home: "Up next" lists each training target with the model's
+  current error rate. A "your level" card shows a sparkline, and a step
+  tracker shows calibration progress.
+- Progress: trend area charts, a keycap heatmap and ranked weak-spot bars.
+- Settings: theme preview cards, and an explanation for each option.
+- The HTML report uses the new palette.
+
 ## [1.0.0] - 2026-11-03
 
 First public release.

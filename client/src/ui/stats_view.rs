@@ -1,177 +1,134 @@
-//! Progress: WPM and accuracy history, keyboard weakness heatmap and the
-//! weakest keys, bigrams and words from the engine's model.
+//! Progress: your level, how speed and accuracy are trending, where on the
+//! keyboard you are weaker or stronger than your own baseline, and the
+//! weakest keys, letter pairs and words from the engine's model.
 
-use super::widgets::{card, keyboard, line_chart, muted, stat, Series};
+use super::widgets::{area_chart, bar_list, card, eyebrow, keyboard, metric, muted, strong};
 use crate::app::App;
 use crate::db::ItemStat;
-use egui::{vec2, Grid, RichText, ScrollArea, Ui};
+use egui::{vec2, ScrollArea, Ui};
 
-fn table(ui: &mut Ui, app: &App, id: &str, rows: &[ItemStat]) {
-    let p = app.palette;
-    if rows.is_empty() {
-        ui.label(muted(&p, "not enough data yet"));
-        return;
-    }
-    Grid::new(id)
-        .striped(false)
-        .spacing(vec2(18.0, 4.0))
-        .show(ui, |ui| {
-            for h in ["item", "error rate", "latency", "weakness"] {
-                ui.label(muted(&p, h).size(12.0));
+fn rows(items: &[ItemStat]) -> Vec<(String, f32, String)> {
+    let max = items
+        .iter()
+        .map(|i| i.weakness)
+        .fold(0.0, f64::max)
+        .max(0.1);
+    items
+        .iter()
+        .filter(|i| i.weakness > 0.0)
+        .take(8)
+        .map(|i| {
+            let mut right = format!("{:.0}%", 100.0 * i.p_error);
+            if let Some(ms) = i.latency_ms {
+                right.push_str(&format!(" · {ms:.0}ms"));
             }
-            ui.end_row();
-            for r in rows {
-                let item = r.item.replace(' ', "·").replace('\n', "↵");
-                let mut t = RichText::new(item).monospace().size(16.0);
-                if r.is_holdout {
-                    t = t.color(p.sub);
-                }
-                ui.label(t).on_hover_text(if r.is_holdout {
-                    "holdout: deliberately not drilled, to measure whether drilling helps"
-                } else {
-                    ""
-                });
-                ui.label(format!("{:.1}%", 100.0 * r.p_error));
-                ui.label(r.latency_ms.map_or("–".into(), |m| format!("{m:.0} ms")));
-                let color = if r.weakness > 0.0 { p.error } else { p.good };
-                ui.label(RichText::new(format!("{:+.2}", r.weakness)).color(color));
-                ui.end_row();
+            let mut label = i.item.replace('\n', "↵");
+            if i.is_holdout {
+                label.push('°');
             }
-        });
+            (label, (i.weakness / max) as f32, right)
+        })
+        .collect()
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     let p = app.palette;
-    ScrollArea::vertical().id_salt("stats_scroll").auto_shrink([false, false]).show(ui, |ui| {
-        let width = ui.available_width().min(1000.0);
-        ui.vertical_centered(|ui| {
-            ui.set_max_width(width);
+    ScrollArea::vertical()
+        .id_salt("stats_scroll")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let full = ui.available_width().min(1040.0);
+            ui.label(eyebrow(&p, "Progress"));
+            ui.label(strong("How your typing is changing", 30.0).color(p.text));
+            ui.add_space(14.0);
+            let h = &app.history;
+            let recent = h.recent(10);
+            let avg = |f: fn(&(usize, f64, f64, f64, String)) -> f64| {
+                (!recent.is_empty()).then(|| recent.iter().map(f).sum::<f64>() / recent.len() as f64)
+            };
             card(ui, &p, |ui| {
-                ui.set_width(width - 32.0);
-                let h = &app.history;
-                let recent = h.recent(10);
-                let avg = |f: fn(&(usize, f64, f64, f64, String)) -> f64| {
-                    (!recent.is_empty())
-                        .then(|| recent.iter().map(f).sum::<f64>() / recent.len() as f64)
-                };
-                ui.columns(5, |c| {
+                ui.set_width(full - 40.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 40.0;
                     let lvl = app.level.as_ref().filter(|l| l.lessons > 0);
-                    stat(
-                        &mut c[0],
+                    metric(ui, &p, "model level", &lvl.map_or("–".into(), |l| format!("{:.0}", l.wpm)), "wpm", 30.0);
+                    metric(ui, &p, "last 10", &avg(|l| l.1).map_or("–".into(), |v| format!("{v:.0}")), "wpm", 30.0);
+                    metric(
+                        ui,
                         &p,
-                        &lvl.map_or("–".into(), |l| format!("{:.0}", l.wpm)),
-                        "level wpm (model)",
+                        "accuracy",
+                        &avg(|l| 100.0 * l.2).map_or("–".into(), |v| format!("{v:.1}")),
+                        "%",
                         30.0,
                     );
-                    stat(
-                        &mut c[1],
-                        &p,
-                        &avg(|l| l.1).map_or("–".into(), |v| format!("{v:.0}")),
-                        "avg wpm (last 10)",
-                        30.0,
-                    );
-                    stat(
-                        &mut c[2],
-                        &p,
-                        &avg(|l| 100.0 * l.2).map_or("–".into(), |v| format!("{v:.1}%")),
-                        "avg accuracy",
-                        30.0,
-                    );
-                    stat(
-                        &mut c[3],
-                        &p,
-                        &h.best_wpm().map_or("–".into(), |v| format!("{v:.0}")),
-                        "best wpm",
-                        30.0,
-                    );
-                    stat(
-                        &mut c[4],
-                        &p,
-                        &format!("{:.0} min", h.total_seconds() / 60.0),
-                        "time typing",
-                        30.0,
-                    );
+                    metric(ui, &p, "best", &h.best_wpm().map_or("–".into(), |v| format!("{v:.0}")), "wpm", 30.0);
+                    metric(ui, &p, "practised", &format!("{:.0}", h.total_seconds() / 60.0), "min", 30.0);
+                    metric(ui, &p, "lessons", &h.lessons.len().to_string(), "", 30.0);
                 });
             });
-            ui.add_space(12.0);
+            ui.add_space(14.0);
             card(ui, &p, |ui| {
-                ui.set_width(width - 32.0);
-                ui.label(RichText::new("Speed").size(17.0));
-                let wpm: Vec<(f64, f64)> = app
-                    .history
-                    .lessons
-                    .iter()
-                    .map(|l| (l.0 as f64, l.1))
-                    .collect();
-                // Moving average over 10 lessons.
-                let avg: Vec<(f64, f64)> = (0..wpm.len())
+                ui.set_width(full - 40.0);
+                ui.label(eyebrow(&p, "Speed trend · 10-lesson average"));
+                let wpm: Vec<(f64, f64)> = h.lessons.iter().map(|l| (l.0 as f64, l.1)).collect();
+                let smooth: Vec<(f64, f64)> = (0..wpm.len())
                     .map(|i| {
-                        let lo = i.saturating_sub(9);
-                        let w = &wpm[lo..=i];
+                        let w = &wpm[i.saturating_sub(9)..=i];
                         (wpm[i].0, w.iter().map(|x| x.1).sum::<f64>() / w.len() as f64)
                     })
                     .collect();
-                line_chart(
-                    ui,
-                    &p,
-                    vec2(ui.available_width(), 200.0),
-                    &[
-                        Series { points: &wpm, color: p.sub, width: 1.0, dots: true },
-                        Series { points: &avg, color: p.accent, width: 2.5, dots: false },
-                    ],
-                    &[],
-                    "wpm per lesson (dots) · 10-lesson average (line) · lessons",
-                );
-                ui.label(RichText::new("Accuracy").size(17.0));
-                let acc: Vec<(f64, f64)> = app
-                    .history
-                    .lessons
-                    .iter()
-                    .map(|l| (l.0 as f64, 100.0 * l.2))
+                area_chart(ui, &p, vec2(full - 40.0, 190.0), &smooth, p.accent, "wpm  ·  lessons", None);
+                ui.add_space(6.0);
+                ui.label(eyebrow(&p, "Accuracy trend"));
+                let acc: Vec<(f64, f64)> = h.lessons.iter().map(|l| (l.0 as f64, 100.0 * l.2)).collect();
+                let acc_s: Vec<(f64, f64)> = (0..acc.len())
+                    .map(|i| {
+                        let w = &acc[i.saturating_sub(9)..=i];
+                        (acc[i].0, w.iter().map(|x| x.1).sum::<f64>() / w.len() as f64)
+                    })
                     .collect();
-                line_chart(
-                    ui,
-                    &p,
-                    vec2(ui.available_width(), 140.0),
-                    &[Series { points: &acc, color: p.good, width: 1.5, dots: true }],
-                    &[],
-                    "first-attempt accuracy % per lesson",
-                );
+                area_chart(ui, &p, vec2(full - 40.0, 120.0), &acc_s, p.accent2, "% first-try accuracy", None);
             });
-            ui.add_space(12.0);
+            ui.add_space(14.0);
             card(ui, &p, |ui| {
-                ui.set_width(width - 32.0);
-                ui.label(RichText::new("Keyboard").size(17.0));
+                ui.set_width(full - 40.0);
+                ui.label(eyebrow(&p, "Your keyboard"));
                 ui.label(muted(
                     &p,
-                    "Weakness per key against your own baseline: red is weaker, green is stronger.",
-                ));
+                    "Each key against your own baseline: a red base means weaker than usual, green means stronger.",
+                )
+                .size(13.5));
                 ui.add_space(6.0);
                 keyboard(ui, &p, &app.layout, &app.key_weakness);
             });
-            ui.add_space(12.0);
+            ui.add_space(14.0);
             card(ui, &p, |ui| {
-                ui.set_width(width - 32.0);
+                ui.set_width(full - 40.0);
+                ui.label(eyebrow(&p, "Weak spots the engine is working on"));
+                ui.add_space(4.0);
                 ui.columns(3, |c| {
-                    c[0].label(RichText::new("Weakest keys").size(17.0));
-                    table(&mut c[0], app, "keys", &app.weak_keys);
-                    c[1].label(RichText::new("Weakest letter pairs").size(17.0));
-                    table(&mut c[1], app, "bigrams", &app.weak_bigrams);
-                    c[2].label(RichText::new("Weakest words").size(17.0));
-                    table(&mut c[2], app, "words", &app.weak_words);
+                    c[0].label(strong("Keys", 16.0));
+                    bar_list(&mut c[0], &p, &rows(&app.weak_keys), p.error);
+                    c[1].label(strong("Letter pairs", 16.0));
+                    bar_list(&mut c[1], &p, &rows(&app.weak_bigrams), p.accent2);
+                    c[2].label(strong("Words", 16.0));
+                    bar_list(&mut c[2], &p, &rows(&app.weak_words), p.accent);
                 });
-            });
-            ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                if ui.button("Open full report").clicked() {
-                    app.open_report();
-                }
+                ui.add_space(4.0);
                 ui.label(muted(
                     &p,
-                    "learning curve, error types, drilling vs holdouts, and the LightGBM/SHAP insight model",
-                ));
+                    "Bar = weakness score (errors and slowness vs your baseline) · error rate · median time. \
+                     ° marks a control item that is deliberately not drilled.",
+                )
+                .size(12.5));
             });
-            ui.add_space(20.0);
+            ui.add_space(14.0);
+            ui.horizontal(|ui| {
+                if ui.button("Open the full report").clicked() {
+                    app.open_report();
+                }
+                ui.label(muted(&p, "learning curve, error types, drilled vs control items, and the insight model").size(13.0));
+            });
+            ui.add_space(24.0);
         });
-    });
 }

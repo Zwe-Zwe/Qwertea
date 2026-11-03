@@ -55,6 +55,7 @@ package() {
   install -Dm644 packaging/qwertea.desktop "$pkgdir/usr/share/applications/qwertea.desktop"
   install -Dm644 packaging/qwertea.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/qwertea.svg"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 client/assets/fonts/OFL.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-AtkinsonHyperlegible.txt"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/$pkgname/CHANGELOG.md"
 }

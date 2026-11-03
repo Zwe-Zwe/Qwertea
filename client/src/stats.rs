@@ -41,6 +41,17 @@ pub struct LessonStats {
     pub slowest_bigrams: Vec<(String, f64)>,
     /// Characters whose first attempt was wrong, with counts, most first.
     pub missed_keys: Vec<(char, usize)>,
+    /// Speed and first-attempt errors of every word, in order.
+    pub words: Vec<WordSample>,
+    /// Per text position: was the first attempt wrong?
+    pub first_wrong: Vec<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WordSample {
+    pub text: String,
+    pub wpm: f64,
+    pub errors: u32,
 }
 
 fn pause_intervals(events: &[KeyEvent]) -> Vec<(u64, u64)> {
@@ -91,6 +102,8 @@ pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
     let pauses = pause_intervals(events);
     let mut typed: Vec<Option<char>> = vec![None; target.len()];
     let mut first_wrong: Vec<Option<bool>> = vec![None; target.len()];
+    // Active time at which each position was first typed.
+    let mut first_time: Vec<Option<u64>> = vec![None; target.len()];
     let mut cursor = 0usize;
     let mut paused = false;
     // (active time, char typed, correct?) for each accepted text keystroke.
@@ -125,6 +138,7 @@ pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
         match first_wrong[cursor] {
             None => {
                 first_wrong[cursor] = Some(!ok);
+                first_time[cursor] = Some(t);
                 if ok && cursor > 0 {
                     if let Some(prev) = last_down {
                         let f = t.saturating_sub(prev);
@@ -231,7 +245,45 @@ pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
     slow.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
     slow.truncate(3);
     s.slowest_bigrams = slow;
+    s.first_wrong = first_wrong.iter().map(|w| *w == Some(true)).collect();
+    s.words = word_samples(&target, &first_time, &s.first_wrong);
     s
+}
+
+/// Per-word speed: the time from the keystroke before the word (usually the
+/// space) to its last letter. The first word has no lead-in and is skipped
+/// when it has fewer than two timed letters.
+fn word_samples(target: &[char], times: &[Option<u64>], wrong: &[bool]) -> Vec<WordSample> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < target.len() {
+        if target[i].is_whitespace() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < target.len() && !target[i].is_whitespace() {
+            i += 1;
+        }
+        let end = i; // exclusive
+        let text: String = target[start..end].iter().collect();
+        let errors = wrong[start..end].iter().filter(|w| **w).count() as u32;
+        let (from, chars) = if start > 0 {
+            (times[start - 1], end - start + 1)
+        } else {
+            (times[start], end - start)
+        };
+        let wpm = match (from, times[end - 1]) {
+            (Some(a), Some(b)) if b > a && chars > 0 => {
+                (chars as f64 / 5.0) / ((b - a) as f64 / 60e9)
+            }
+            _ => 0.0,
+        };
+        if times[end - 1].is_some() {
+            out.push(WordSample { text, wpm, errors });
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -316,6 +368,21 @@ mod tests {
             s.slowest_bigrams[0].1, 150.0,
             "b -> c flight excludes the pause"
         );
+    }
+
+    #[test]
+    fn per_word_samples() {
+        // "ab cd": every key 100 ms apart; 'x' typed for 'c'.
+        let ev = run("ab cd", &chars("ab xd", 100));
+        let s = compute("ab cd", &ev);
+        assert_eq!(s.words.len(), 2);
+        assert_eq!(s.words[0].text, "ab");
+        // "ab": 2 chars over 100 ms (a -> b) = 240 wpm.
+        assert!((s.words[0].wpm - 240.0).abs() < 1e-6);
+        // " cd": 3 chars over 200 ms (b -> d) = 180 wpm, one error.
+        assert!((s.words[1].wpm - 180.0).abs() < 1e-6);
+        assert_eq!(s.words[1].errors, 1);
+        assert_eq!(s.first_wrong, vec![false, false, false, true, false]);
     }
 
     #[test]

@@ -1,4 +1,5 @@
-//! Screens. `show` draws the current screen; the top bar is hidden while typing.
+//! Screens. A left sidebar holds the brand, navigation and engine status; it
+//! disappears while typing so only the lesson remains.
 
 pub mod home;
 pub mod settings;
@@ -9,42 +10,46 @@ pub mod typing_view;
 pub mod widgets;
 
 use crate::app::{App, Screen};
-use egui::{Align, Layout, RichText, Ui};
+use egui::{pos2, vec2, Align2, CornerRadius, FontId, RichText, Sense, Ui};
+use widgets::{icon, logo, strong, Icon};
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     app.apply_theme(ui.ctx());
     let p = app.palette;
     if app.screen != Screen::Typing {
-        egui::Panel::top("top")
+        egui::Panel::left("nav")
+            .exact_size(212.0)
+            .resizable(false)
+            .show_separator_line(false)
             .frame(
                 egui::Frame::new()
-                    .fill(p.bg)
-                    .inner_margin(egui::Margin::symmetric(28, 14)),
+                    .fill(p.panel)
+                    .inner_margin(egui::Margin::symmetric(16, 22)),
             )
-            .show_separator_line(false)
-            .show(ui, |ui| top_bar(app, ui));
+            .show(ui, |ui| sidebar(app, ui));
     }
     if let Some(msg) = app.banner.clone() {
         egui::Panel::bottom("banner")
             .frame(
                 egui::Frame::new()
-                    .fill(p.panel)
-                    .inner_margin(egui::Margin::symmetric(16, 8)),
+                    .fill(p.panel_hi)
+                    .inner_margin(egui::Margin::symmetric(18, 8)),
             )
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(msg).color(p.sub).size(13.0));
+                    ui.label(RichText::new(msg).color(p.text).size(13.0));
                     if ui.small_button("dismiss").clicked() {
                         app.banner = None;
                     }
                 });
             });
     }
+    let margin = if app.screen == Screen::Typing { 24 } else { 36 };
     egui::CentralPanel::default()
         .frame(
             egui::Frame::new()
                 .fill(p.bg)
-                .inner_margin(egui::Margin::symmetric(28, 12)),
+                .inner_margin(egui::Margin::symmetric(margin, 26)),
         )
         .show(ui, |ui| match app.screen {
             Screen::Home => home::show(app, ui),
@@ -57,71 +62,113 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         });
     if let Some((msg, _)) = app.toast.clone() {
         egui::Area::new(egui::Id::unique("toast"))
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -24.0))
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-24.0, -24.0))
             .show(ui.ctx(), |ui| {
                 egui::Frame::new()
                     .fill(p.panel_hi)
-                    .corner_radius(egui::CornerRadius::same(8))
-                    .inner_margin(egui::Margin::symmetric(14, 8))
+                    .corner_radius(CornerRadius::same(12))
+                    .inner_margin(egui::Margin::symmetric(16, 10))
                     .show(ui, |ui| ui.label(RichText::new(msg).color(p.text)));
             });
     }
 }
 
-fn top_bar(app: &mut App, ui: &mut Ui) {
+fn nav_item(ui: &mut Ui, app: &App, label: &str, which: Icon, active: bool) -> bool {
+    let p = app.palette;
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+    let pt = ui.painter();
+    if active {
+        pt.rect_filled(rect, CornerRadius::same(10), p.panel_hi);
+        pt.rect_filled(
+            egui::Rect::from_min_size(rect.min + vec2(0.0, 10.0), vec2(3.0, 20.0)),
+            CornerRadius::same(2),
+            p.accent,
+        );
+    } else if resp.hovered() {
+        pt.rect_filled(rect, CornerRadius::same(10), p.panel_hi.gamma_multiply(0.6));
+    }
+    let color = if active { p.text } else { p.sub };
+    icon(
+        pt,
+        pos2(rect.left() + 22.0, rect.center().y),
+        18.0,
+        which,
+        if active { p.accent } else { p.sub },
+    );
+    pt.text(
+        pos2(rect.left() + 42.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(15.5),
+        color,
+    );
+    resp.clicked()
+}
+
+fn sidebar(app: &mut App, ui: &mut Ui) {
     let p = app.palette;
     ui.horizontal(|ui| {
-        ui.label(
-            RichText::new("qwertea")
-                .size(26.0)
-                .color(p.accent)
-                .monospace()
-                .strong(),
-        );
-        ui.add_space(28.0);
-        for (label, screen) in [
-            ("practice", Screen::Home),
-            ("stats", Screen::Stats),
-            ("settings", Screen::Settings),
-        ] {
-            let current = app.screen == screen
-                || (screen == Screen::Home
-                    && matches!(
-                        app.screen,
-                        Screen::Intro | Screen::Summary | Screen::SittingDone
-                    ));
-            let text = RichText::new(label)
-                .size(16.0)
-                .color(if current { p.text } else { p.sub });
-            if ui.add(egui::Button::new(text).frame(false)).clicked() {
-                if screen == Screen::Stats {
-                    app.refresh_history();
-                }
-                if screen == Screen::Home {
-                    app.refresh_queue();
-                }
-                app.screen = screen;
-            }
-        }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let ok = app.engine.status.is_ok();
-            let (dot, text) = if ok {
-                (p.good, "engine ready")
-            } else {
-                (p.error, "engine offline")
-            };
-            let r = ui.label(RichText::new(format!("• {text}")).size(13.0).color(dot));
-            r.on_hover_text(app.engine.status.label());
-            if ui
-                .add(
-                    egui::Button::new(RichText::new("report").size(13.0).color(p.sub)).frame(false),
-                )
-                .on_hover_text("Open the full HTML report in your browser")
-                .clicked()
-            {
-                app.open_report();
-            }
+        logo(ui, &p, 34.0);
+        ui.add_space(4.0);
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.label(strong("qwertea", 20.0).color(p.text));
+            ui.label(
+                RichText::new("typing, steeped in data")
+                    .size(11.5)
+                    .color(p.sub),
+            );
         });
+    });
+    ui.add_space(28.0);
+    let practice = matches!(
+        app.screen,
+        Screen::Home | Screen::Intro | Screen::Summary | Screen::SittingDone
+    );
+    if nav_item(ui, app, "Practice", Icon::Cup, practice) {
+        app.refresh_queue();
+        app.screen = Screen::Home;
+    }
+    if nav_item(
+        ui,
+        app,
+        "Progress",
+        Icon::Chart,
+        app.screen == Screen::Stats,
+    ) {
+        app.refresh_history();
+        app.screen = Screen::Stats;
+    }
+    if nav_item(
+        ui,
+        app,
+        "Settings",
+        Icon::Sliders,
+        app.screen == Screen::Settings,
+    ) {
+        app.screen = Screen::Settings;
+    }
+    if nav_item(ui, app, "Full report", Icon::Page, false) {
+        app.open_report();
+    }
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+        ui.label(
+            RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                .size(11.5)
+                .color(p.sub),
+        );
+        let ok = app.engine.status.is_ok();
+        let (color, text) = if ok {
+            (p.good, "engine brewing")
+        } else {
+            (p.error, "engine offline")
+        };
+        let r = ui.horizontal(|ui| {
+            let (dot, _) = ui.allocate_exact_size(vec2(8.0, 14.0), Sense::hover());
+            ui.painter().circle_filled(dot.center(), 3.5, color);
+            ui.label(RichText::new(text).size(12.5).color(p.sub));
+        });
+        r.response.on_hover_text(app.engine.status.label());
     });
 }
 

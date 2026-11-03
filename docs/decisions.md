@@ -154,3 +154,13 @@ The engine wheel carries what it needs at run time:
 These are added with hatch `force-include`, so the repository stays the single source of truth. A fetched corpus goes to `~/.local/share/qwertea/corpora/` when installed. The client embeds the schema and the default layout at compile time.
 
 The window's app id / WM_CLASS is `qwertea`, matching `qwertea.desktop`.
+
+## D26: Qwertea's own visual identity (branch `new_ui`)
+The 1.0.0 interface was too close to an existing typing site: the colours, the layout of the typing screen and the results page, and two theme names. The redesign keeps the function and gives Qwertea a look of its own, built around its name and its adaptive engine.
+- **Palette:** four original tea palettes. Each has a primary accent for actions and progress, and a secondary accent reserved for *training targets*.
+- **Type:** Atkinson Hyperlegible and Atkinson Hyperlegible Mono, designed for legibility (SIL OFL, embedded in the binary). egui's fonts remain as fallbacks for arrows.
+- **Structure:** a left sidebar (hidden while typing) instead of a top bar.
+- **Typing screen:** the text sits on a card with a progress edge and an underline caret with a soft cell highlight. The lesson's targets are tinted where they appear in the upcoming text. This is the one visual element that exists because the lessons are adaptive.
+- **Results:** compared against the user's own history, not shown as bare numbers. A per-word rhythm strip and per-target outcomes replace the per-second line chart.
+
+Old theme names in existing configs map to the new palettes.
