@@ -134,3 +134,27 @@ def test_rebuild_equals_incremental(calibrated: tuple[Engine, SimUser]) -> None:
     after = [tuple(r) for r in snap()]
     assert before == after
     assert Item("prose", "bigram", "ou")  # sanity: Item is hashable/importable
+
+
+def test_words_do_not_crowd_out_ngrams(calibrated: tuple[Engine, SimUser]) -> None:
+    """Word error rates are compared per character, so planted bigrams stay on top."""
+    eng, _ = calibrated
+    rows = eng.conn.execute(
+        "SELECT item_kind, item FROM item_stats WHERE n >= 5 ORDER BY weakness DESC LIMIT 15"
+    ).fetchall()
+    kinds = [r["item_kind"] for r in rows]
+    assert kinds.count("word") <= 6, [tuple(r) for r in rows]
+
+
+def test_targets_in_a_lesson_are_diverse(calibrated: tuple[Engine, SimUser]) -> None:
+    eng, _ = calibrated
+    for r in eng.conn.execute("SELECT targets_json FROM lessons WHERE generator='prose/adaptive'"):
+        items = [
+            t["item"].lower().strip()
+            for t in json.loads(r["targets_json"])
+            if t["reason"] == "weak"
+        ]
+        pairs = [{v[i : i + 2] for i in range(len(v) - 1)} for v in items]
+        for i in range(len(pairs)):
+            for j in range(i + 1, len(pairs)):
+                assert not (pairs[i] & pairs[j]), items

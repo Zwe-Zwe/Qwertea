@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from .corpus import Corpus
 from .items import Item
-from .model.baseline import ItemScore
+from .model.baseline import ItemScore, per_char
 
 # Which kinds are drilled, with a preference weight (n-grams are the richest signal).
 KIND_WEIGHT = {"bigram": 1.0, "trigram": 0.9, "key": 0.8, "word": 0.5}
@@ -29,12 +29,17 @@ class Selection:
     sampled_weakness: float
 
 
+def _pairs(v: str) -> set[str]:
+    v = v.lower().strip()
+    return {v[i : i + 2] for i in range(len(v) - 1)} or {v}
+
+
 def _overlaps(a: Item, b: Item) -> bool:
-    """Too similar to drill together (one contains the other, or same final key)."""
+    """Too similar to drill together: they share a letter pair (or one contains the other)."""
     x, y = a.value.lower(), b.value.lower()
-    if a.kind == "word" or b.kind == "word":
-        return x == y
-    return x in y or y in x
+    if x in y or y in x:
+        return True
+    return bool(_pairs(x) & _pairs(y))
 
 
 def thompson_select(
@@ -63,7 +68,7 @@ def thompson_select(
         if freq <= 0:
             continue
         # Thompson draw: replace the posterior mean by a sample.
-        p = rng.betavariate(s.alpha, s.beta)
+        p = per_char(it, rng.betavariate(s.alpha, s.beta))
         w = w_err * (p - err_rate) / err_scale + w_lat * s.z_lat
         benefit = max(w, 0.0) * freq * (1.0 + bonus * s.uncertainty) * KIND_WEIGHT[it.kind]
         if benefit > 0:

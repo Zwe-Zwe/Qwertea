@@ -245,6 +245,33 @@ impl LessonRun {
         });
     }
 
+    /// Pause without a key press (e.g. the window lost focus): only the
+    /// pause marker is logged. No-op unless running.
+    pub fn pause(&mut self, t_ns: u64) {
+        if self.state == RunState::Running {
+            self.last_t_ns = self.last_t_ns.max(t_ns);
+            self.toggle_pause(t_ns);
+        }
+    }
+
+    /// Resume after `pause` (or an Esc pause) without a key press.
+    pub fn resume(&mut self, t_ns: u64) {
+        if self.state == RunState::Paused {
+            self.last_t_ns = self.last_t_ns.max(t_ns);
+            self.toggle_pause(t_ns);
+        }
+    }
+
+    /// True once at least one text key was accepted.
+    pub fn has_typed(&self) -> bool {
+        self.first_wrong.iter().any(Option::is_some)
+    }
+
+    /// Time of the last recorded event (ns since lesson start).
+    pub fn last_event_ns(&self) -> u64 {
+        self.last_t_ns
+    }
+
     /// Active (non-paused) time at `now_ns`.
     pub fn active_ns(&self, now_ns: u64) -> u64 {
         let end = match self.state {
@@ -496,6 +523,22 @@ mod tests {
         // Key 31 is still held, so we wait for the grace period.
         assert!(!d.run.ready_to_flush(50 * MS));
         assert!(d.run.ready_to_flush(10 * MS + RELEASE_GRACE_NS));
+    }
+
+    #[test]
+    fn focus_pause_logs_only_markers() {
+        let mut d = Driver::new("ab", false);
+        d.ch('a');
+        let n = d.run.events().len();
+        d.run.pause(d.t + MS);
+        d.run.pause(d.t + 2 * MS); // already paused: no-op
+        assert_eq!(d.run.state(), RunState::Paused);
+        d.run.resume(d.t + 1_000 * MS);
+        assert_eq!(d.run.state(), RunState::Running);
+        let ev = &d.run.events()[n..];
+        assert_eq!(ev.len(), 2);
+        assert!(ev.iter().all(|e| e.is_pause_marker));
+        assert!(d.run.has_typed());
     }
 
     #[test]

@@ -9,6 +9,7 @@ The combined score is `weakness = w_e * z_err + w_l * z_lat` (section 8.3.3).
 
 from __future__ import annotations
 
+import math
 import statistics
 from dataclasses import dataclass
 
@@ -43,6 +44,19 @@ class ItemScore:
     beta: float = 1.0
 
 
+def per_char(item: Item, p: float) -> float:
+    """Per-keystroke equivalent of an item's error rate.
+
+    Keys, bigrams and trigrams are scored on their final keystroke, so their
+    rate is already per keystroke. A word fails if *any* of its characters
+    does, so convert: 1 - (1 - p) ** (1 / len). Without this, every word would
+    look far weaker than any single key.
+    """
+    if item.kind != "word" or len(item.value) <= 1:
+        return p
+    return 1.0 - math.pow(1.0 - p, 1.0 / len(item.value))
+
+
 def fit_baseline(items: dict[Item, ItemObs], bayes: BayesModel) -> Baseline:
     key_lats = [x for it, o in items.items() if it.kind == "key" for x in o.log_lat]
     med = statistics.median(key_lats) if key_lats else 5.3  # ~200 ms
@@ -66,7 +80,7 @@ def score(
 ) -> ItemScore:
     post = bayes.posterior(item)
     p = post.mean if p_err is None else p_err
-    z_err = (p - base.err_rate) / base.err_scale
+    z_err = (per_char(item, p) - base.err_rate) / base.err_scale
     lat = stats(obs.log_lat)
     z_lat = 0.0
     if lat is not None:

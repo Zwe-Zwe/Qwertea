@@ -1,0 +1,327 @@
+//! Lesson results computed from the raw events (used for the summary screen
+//! and the history chart). Runs between lessons, never in the key handler.
+//!
+//! Definitions (paused time excluded everywhere):
+//! * time: from the first to the last accepted keystroke;
+//! * WPM: characters correct at the end / 5 per minute;
+//! * raw WPM: every typed character (right or wrong) / 5 per minute;
+//! * accuracy: share of positions whose *first* attempt was correct
+//!   (the same definition the engine uses);
+//! * consistency: 100 × (1 − coefficient of variation of per-second raw WPM).
+
+use crate::session::{normalize_text, KeyEvent};
+use std::collections::HashMap;
+
+const THINK_PAUSE_NS: u64 = 2_500_000_000;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SecondSample {
+    pub second: u32,
+    pub wpm: f64,
+    pub raw: f64,
+    pub errors: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LessonStats {
+    pub chars: usize,
+    pub seconds: f64,
+    pub wpm: f64,
+    pub raw_wpm: f64,
+    pub accuracy: f64,
+    pub consistency: f64,
+    pub correct: usize,
+    pub incorrect: usize,
+    pub corrected: usize,
+    pub errors: usize,
+    pub keystrokes: usize,
+    pub backspaces: usize,
+    pub per_second: Vec<SecondSample>,
+    /// (bigram, median ms) — the three slowest transitions of the lesson.
+    pub slowest_bigrams: Vec<(String, f64)>,
+    /// Characters whose first attempt was wrong, with counts, most first.
+    pub missed_keys: Vec<(char, usize)>,
+}
+
+fn pause_intervals(events: &[KeyEvent]) -> Vec<(u64, u64)> {
+    let mut out = Vec::new();
+    let mut start = None;
+    for e in events.iter().filter(|e| e.is_pause_marker) {
+        match (e.is_down, start) {
+            (true, None) => start = Some(e.t_ns),
+            (false, Some(s)) => {
+                out.push((s, e.t_ns));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        out.push((s, events.last().map(|e| e.t_ns).unwrap_or(s)));
+    }
+    out
+}
+
+fn active(t: u64, pauses: &[(u64, u64)]) -> u64 {
+    let mut removed = 0;
+    for &(a, b) in pauses {
+        if t >= b {
+            removed += b - a;
+        } else if t > a {
+            removed += t - a;
+        }
+    }
+    t - removed
+}
+
+fn median(v: &mut [f64]) -> f64 {
+    v.sort_by(f64::total_cmp);
+    let n = v.len();
+    if n == 0 {
+        0.0
+    } else if n % 2 == 1 {
+        v[n / 2]
+    } else {
+        (v[n / 2 - 1] + v[n / 2]) / 2.0
+    }
+}
+
+pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
+    let target = normalize_text(text);
+    let pauses = pause_intervals(events);
+    let mut typed: Vec<Option<char>> = vec![None; target.len()];
+    let mut first_wrong: Vec<Option<bool>> = vec![None; target.len()];
+    let mut cursor = 0usize;
+    let mut paused = false;
+    // (active time, char typed, correct?) for each accepted text keystroke.
+    let mut strokes: Vec<(u64, bool)> = Vec::new();
+    let mut flights: HashMap<String, Vec<f64>> = HashMap::new();
+    let mut last_down: Option<u64> = None;
+    let mut backspaces = 0;
+    let mut corrected = 0;
+    for e in events {
+        if e.is_pause_marker {
+            paused = e.is_down;
+            continue;
+        }
+        if !e.is_down || paused {
+            continue;
+        }
+        let t = active(e.t_ns, &pauses);
+        if e.is_backspace {
+            backspaces += 1;
+            last_down = Some(t);
+            if cursor > 0 {
+                cursor -= 1;
+                typed[cursor] = None;
+            }
+            continue;
+        }
+        let Some(c) = e.produced_char else { continue };
+        if cursor >= target.len() {
+            continue;
+        }
+        let ok = c == target[cursor];
+        match first_wrong[cursor] {
+            None => {
+                first_wrong[cursor] = Some(!ok);
+                if ok && cursor > 0 {
+                    if let Some(prev) = last_down {
+                        let f = t.saturating_sub(prev);
+                        if f > 0 && f < THINK_PAUSE_NS {
+                            let bigram: String = target[cursor - 1..=cursor]
+                                .iter()
+                                .map(|c| c.to_ascii_lowercase())
+                                .collect();
+                            if !bigram.contains(['\n', '\t']) {
+                                flights.entry(bigram).or_default().push(f as f64 / 1e6);
+                            }
+                        }
+                    }
+                }
+            }
+            Some(true) if ok => corrected += 1,
+            _ => {}
+        }
+        typed[cursor] = Some(c);
+        strokes.push((t, ok));
+        last_down = Some(t);
+        cursor += 1;
+    }
+
+    let mut s = LessonStats {
+        chars: target.len(),
+        keystrokes: strokes.len(),
+        backspaces,
+        corrected,
+        ..Default::default()
+    };
+    s.correct = (0..target.len())
+        .filter(|&i| typed[i] == Some(target[i]))
+        .count();
+    s.incorrect = typed.iter().flatten().count() - s.correct;
+    let attempts: Vec<bool> = first_wrong.iter().flatten().copied().collect();
+    s.errors = attempts.iter().filter(|w| **w).count();
+    s.accuracy = if attempts.is_empty() {
+        1.0
+    } else {
+        1.0 - s.errors as f64 / attempts.len() as f64
+    };
+    let mut missed: HashMap<char, usize> = HashMap::new();
+    for (i, w) in first_wrong.iter().enumerate() {
+        if *w == Some(true) {
+            *missed.entry(target[i]).or_default() += 1;
+        }
+    }
+    s.missed_keys = missed.into_iter().collect();
+    s.missed_keys
+        .sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
+    if let (Some(&(t0, _)), Some(&(t1, _))) = (strokes.first(), strokes.last()) {
+        // Count the first keystroke's own interval: n strokes span n-1 gaps.
+        let n = strokes.len() as f64;
+        let span = (t1 - t0) as f64 / 1e9;
+        let secs = if n > 1.0 { span * n / (n - 1.0) } else { 0.0 };
+        s.seconds = secs;
+        if secs > 0.0 {
+            s.wpm = s.correct as f64 / 5.0 / (secs / 60.0);
+            s.raw_wpm = n / 5.0 / (secs / 60.0);
+        }
+        // Per-second samples.
+        let total_secs = secs.ceil().max(1.0) as usize;
+        let mut chars = vec![0u32; total_secs];
+        let mut errs = vec![0u32; total_secs];
+        let mut good = vec![0u32; total_secs];
+        for &(t, ok) in &strokes {
+            let b = (((t - t0) as f64 / 1e9) as usize).min(total_secs - 1);
+            chars[b] += 1;
+            if ok {
+                good[b] += 1;
+            } else {
+                errs[b] += 1;
+            }
+        }
+        let mut cum_good = 0u32;
+        for i in 0..total_secs {
+            cum_good += good[i];
+            let elapsed = ((i + 1) as f64).min(secs.max(1.0));
+            s.per_second.push(SecondSample {
+                second: i as u32 + 1,
+                wpm: cum_good as f64 / 5.0 / (elapsed / 60.0),
+                raw: chars[i] as f64 * 12.0,
+                errors: errs[i],
+            });
+        }
+        let raws: Vec<f64> = s.per_second.iter().map(|p| p.raw).collect();
+        if raws.len() >= 2 {
+            let mean = raws.iter().sum::<f64>() / raws.len() as f64;
+            let var = raws.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / raws.len() as f64;
+            s.consistency = if mean > 0.0 {
+                (100.0 * (1.0 - var.sqrt() / mean)).clamp(0.0, 100.0)
+            } else {
+                0.0
+            };
+        }
+    }
+
+    let mut slow: Vec<(String, f64)> = flights
+        .into_iter()
+        .map(|(k, mut v)| (k, median(&mut v)))
+        .collect();
+    slow.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    slow.truncate(3);
+    s.slowest_bigrams = slow;
+    s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::{KeyInput, KeyKind, LessonRun};
+
+    const MS: u64 = 1_000_000;
+
+    fn run(text: &str, keys: &[(KeyKind, u64)]) -> Vec<KeyEvent> {
+        let mut r = LessonRun::new(text, false);
+        let mut t = 0;
+        for &(k, gap) in keys {
+            t += gap * MS;
+            r.on_key(
+                t,
+                KeyInput {
+                    scancode: 1,
+                    is_down: true,
+                    kind: k,
+                },
+            );
+            r.on_key(
+                t + 10 * MS,
+                KeyInput {
+                    scancode: 1,
+                    is_down: false,
+                    kind: k,
+                },
+            );
+        }
+        r.into_events()
+    }
+
+    fn chars(s: &str, gap: u64) -> Vec<(KeyKind, u64)> {
+        s.chars().map(|c| (KeyKind::Text(c), gap)).collect()
+    }
+
+    #[test]
+    fn perfect_lesson() {
+        // 10 chars, one every 120 ms => 1.2 s => 10/5/0.02 = 100 WPM.
+        let ev = run("abcde fghi", &chars("abcde fghi", 120));
+        let s = compute("abcde fghi", &ev);
+        assert!((s.seconds - 1.2).abs() < 1e-9);
+        assert!((s.wpm - 100.0).abs() < 1e-6, "{}", s.wpm);
+        assert_eq!(s.raw_wpm, s.wpm);
+        assert_eq!(s.accuracy, 1.0);
+        assert_eq!((s.correct, s.incorrect, s.errors), (10, 0, 0));
+        assert_eq!(s.per_second.len(), 2);
+        assert_eq!(s.slowest_bigrams.len(), 3);
+    }
+
+    #[test]
+    fn errors_corrections_and_slow_bigram() {
+        let mut keys = chars("ax", 100);
+        keys.push((KeyKind::Backspace, 100));
+        keys.push((KeyKind::Text('b'), 100));
+        keys.push((KeyKind::Text('c'), 900)); // slow b->c
+        let ev = run("abc", &keys);
+        let s = compute("abc", &ev);
+        assert_eq!(s.errors, 1);
+        assert_eq!(s.corrected, 1);
+        assert_eq!(s.correct, 3);
+        assert_eq!(s.backspaces, 1);
+        assert!((s.accuracy - 2.0 / 3.0).abs() < 1e-9);
+        assert_eq!(s.slowest_bigrams[0], ("bc".to_string(), 900.0));
+        assert_eq!(s.missed_keys, vec![('b', 1)]);
+        assert!(s.raw_wpm > s.wpm);
+    }
+
+    #[test]
+    fn pauses_do_not_count() {
+        let mut keys = chars("ab", 100);
+        keys.push((KeyKind::Escape, 50));
+        keys.push((KeyKind::Escape, 10_000));
+        keys.push((KeyKind::Text('c'), 100));
+        let ev = run("abc", &keys);
+        let s = compute("abc", &ev);
+        // a@100, b@200, pause 250..10250 (10 s removed), c@10350 -> active 350.
+        assert!((s.seconds - 0.375).abs() < 1e-9, "{}", s.seconds);
+        assert_eq!(
+            s.slowest_bigrams[0].1, 150.0,
+            "b -> c flight excludes the pause"
+        );
+    }
+
+    #[test]
+    fn empty_lesson() {
+        let s = compute("abc", &[]);
+        assert_eq!(s.wpm, 0.0);
+        assert_eq!(s.accuracy, 1.0);
+    }
+}
