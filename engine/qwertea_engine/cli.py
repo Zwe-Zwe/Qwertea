@@ -102,7 +102,7 @@ def serve(
     try:
         while True:
             if parent and not _alive(parent):
-                typer.echo("the Qwertea app that started this engine has exited; stopping", err=True)
+                typer.echo("the app that started this engine has exited; stopping", err=True)
                 break
             try:
                 res = eng.run_once()
