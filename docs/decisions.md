@@ -61,6 +61,8 @@ The typing view (M2) will therefore repaint only on input and on a slow HUD tick
 - `client/scripts/xtest_typist.py`: a scripted X11 typist for headless timing runs.
 - `engine/qwertea_engine/paths.py`: repository paths and `config.toml` loading.
 - `client/src/app.rs`, `stats.rs`, `layout.rs`, `engine_proc.rs`, `ui/settings.rs`, `ui/stats_view.rs`, `ui/widgets.rs`: app state, lesson results, keyboard geometry, engine supervision, and the extra screens and widgets.
+- `packaging/`: desktop entry, icon and Arch PKGBUILDs (D25).
+- `engine/qwertea_engine/corpus_build.py`: the corpus builder (formerly `engine/scripts/fetch_corpus.py`, now a thin wrapper).
 - `engine/qwertea_engine/pipeline.py`, `corpus.py`, `typist.py`, `model/observations.py`: the engine loop, the corpus, a reference implementation of the client's cursor rules (used by tests and the simulator), and observation extraction.
 
 ## D12: Engine dependencies are minimal
@@ -137,3 +139,18 @@ Everywhere (client summary, history and engine level model), accuracy means the 
 - `[engine] autostart` and `command`: see D15.
 
 The settings screen writes `config.toml` with `toml_edit`, keeping comments, formatting and the engine sections.
+
+## D25: Installed layout (1.0.0)
+Qwertea runs from a source checkout or as an installed package, and the client and engine resolve the config the same way:
+1. `$QWERTEA_CONFIG`;
+2. a source checkout, i.e. a `config.toml` next to a `schema/` directory. The client walks up from the current directory, then from the executable;
+3. `~/.config/qwertea/config.toml` (XDG; `%APPDATA%\qwertea` on Windows, `~/Library/Application Support/qwertea` on macOS). It is created on first run from the default config, with an absolute `db_path` in `~/.local/share/qwertea/` and `engine.command = ["qwertea-engine", "serve"]`.
+
+The engine wheel carries what it needs at run time:
+- `schema/*.sql` → `qwertea_engine/schema`;
+- the layouts and the bundled corpus → `qwertea_engine/data/`;
+- `config.toml` → `qwertea_engine/default_config.toml`.
+
+These are added with hatch `force-include`, so the repository stays the single source of truth. A fetched corpus goes to `~/.local/share/qwertea/corpora/` when installed. The client embeds the schema and the default layout at compile time.
+
+The window's app id / WM_CLASS is `qwertea`, matching `qwertea.desktop`.

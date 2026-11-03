@@ -1,5 +1,7 @@
 # Qwertea
 
+[![CI](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml/badge.svg)](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml) · version 1.0.0 · [changelog](CHANGELOG.md)
+
 **A typing tutor that learns your weak spots.** Qwertea looks like the typing sites you know: clean text, a caret, live WPM. But its lessons are not fixed. Each one is brewed from *your* history: the keys, letter pairs and words you get wrong or type slowly, measured against your own baseline by a statistical model that updates after every lesson.
 
 Everything runs locally. No accounts, no cloud, no telemetry.
@@ -30,7 +32,21 @@ Everything runs locally. No accounts, no cloud, no telemetry.
 - **Accurate timing:** keystrokes are timestamped before the UI touches them, and kernel timestamps are optional on Linux. See [docs/timing-validation.md](docs/timing-validation.md).
 - **Four themes** (dark, light, nord, matcha), adjustable text size, and an optional stop-on-error mode.
 
-## Quick start
+## Install
+
+### Arch Linux
+
+```bash
+git clone https://github.com/Zwe-Zwe/Qwertea.git
+cd Qwertea/packaging/arch
+makepkg -si
+```
+
+Then start **Qwertea** from your application menu, or run `qwertea`. Once the package is published to the AUR, `yay -S qwertea` works too. See [packaging/arch/README.md](packaging/arch/README.md) for details, the `qwertea-git` package and optional extras.
+
+An installed Qwertea keeps your settings in `~/.config/qwertea/config.toml` and your data in `~/.local/share/qwertea/`.
+
+### From source (any OS)
 
 You need [Rust](https://rustup.rs) (stable) and [uv](https://docs.astral.sh/uv/getting-started/installation/) (Python 3.11+ is installed by uv if needed).
 
@@ -40,7 +56,7 @@ cd Qwertea
 make run
 ```
 
-`make run` installs the engine's Python dependencies, builds the app in release mode and starts it. The app starts the analysis engine in the background by itself. After the first build, `make run` (or `./client/target/release/qwertea` from the repository folder) starts in a second.
+`make run` installs the engine's Python dependencies, builds the app in release mode and starts it. The app starts the analysis engine in the background by itself. After the first build, `make run` (or `./client/target/release/qwertea` from the repository folder) starts in a second. Run from a source checkout, Qwertea uses the repository's `config.toml` and keeps its data in `data/`.
 
 Without `make` (e.g. on Windows):
 
@@ -150,12 +166,13 @@ client/   Rust app: capture, LessonRun state machine, DB, screens (ui/), timing 
 engine/   Python package qwertea_engine: derive, model/, select, review, generators/, report/
 schema/   001_init.sql + numbered migrations (authoritative, applied by both sides)
 docs/     decisions, timing validation, screenshots
-data/     your local database, report and logs (git-ignored)
+packaging/ desktop entry, icon and Arch Linux PKGBUILDs
+data/     your local database, report and logs when run from a checkout (git-ignored)
 ```
 
 ## Privacy
 
-Your typing data lives in `data/` on your computer and is never sent anywhere. Delete it with `make clean-data`.
+Your typing data lives on your computer and is never sent anywhere: in `~/.local/share/qwertea/` for an installed copy, or in `data/` in a source checkout (delete it with `make clean-data`).
 
 ## Licence
 
