@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Qwertea
+GenericName=Typing Tutor
+Comment=Adaptive typing tutor that builds every lesson from your own weak spots
+Exec=qwertea
+Icon=qwertea
+Terminal=false
+Categories=Education;Utility;
+Keywords=typing;keyboard;tutor;wpm;touch typing;practice;
+StartupWMClass=qwertea

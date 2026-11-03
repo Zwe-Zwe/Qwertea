@@ -133,9 +133,12 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Load `config.toml` from `$QWERTEA_CONFIG`, or the first `config.toml`
-    /// found walking up from the current directory, then from the executable's
-    /// directory. Falls back to defaults.
+    /// Load `config.toml`. Resolution order (the engine uses the same):
+    /// 1. `$QWERTEA_CONFIG`;
+    /// 2. a source checkout: walking up from the current directory, then from
+    ///    the executable, a `config.toml` next to a `schema/` directory;
+    /// 3. the user config `~/.config/qwertea/config.toml`, created on first
+    ///    run with the database in `~/.local/share/qwertea/` (installed copy).
     pub fn load() -> Self {
         let path = std::env::var_os("QWERTEA_CONFIG")
             .map(PathBuf::from)
@@ -144,7 +147,8 @@ impl Config {
                 std::env::current_exe()
                     .ok()
                     .and_then(|e| e.parent().and_then(find_config))
-            });
+            })
+            .or_else(ensure_user_config);
         let Some(p) = path else {
             return Self::default_at(PathBuf::from("."));
         };
@@ -174,7 +178,7 @@ impl Config {
     }
 
     pub fn db_path(&self) -> PathBuf {
-        let p = PathBuf::from(&self.general.db_path);
+        let p = expand_home(&self.general.db_path);
         if p.is_absolute() {
             p
         } else {
@@ -238,6 +242,77 @@ pub fn update_toml(text: &str, cfg: &Config) -> Result<String, String> {
     Ok(doc.to_string())
 }
 
+const APP: &str = "qwertea";
+/// The repository's default config, used as the template for a user config.
+pub const DEFAULT_CONFIG: &str = include_str!("../../config.toml");
+
+fn home() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn expand_home(p: &str) -> PathBuf {
+    match p.strip_prefix("~/") {
+        Some(rest) => home().join(rest),
+        None => PathBuf::from(p),
+    }
+}
+
+fn env_dir(var: &str) -> Option<PathBuf> {
+    std::env::var_os(var)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+pub fn user_config_dir() -> PathBuf {
+    if cfg!(windows) {
+        env_dir("APPDATA").unwrap_or_else(home).join(APP)
+    } else if cfg!(target_os = "macos") {
+        home().join("Library/Application Support").join(APP)
+    } else {
+        env_dir("XDG_CONFIG_HOME")
+            .unwrap_or_else(|| home().join(".config"))
+            .join(APP)
+    }
+}
+
+pub fn user_data_dir() -> PathBuf {
+    if cfg!(any(windows, target_os = "macos")) {
+        user_config_dir()
+    } else {
+        env_dir("XDG_DATA_HOME")
+            .unwrap_or_else(|| home().join(".local/share"))
+            .join(APP)
+    }
+}
+
+/// The default config adapted for an installed copy: absolute database path
+/// and the installed `qwertea-engine` command.
+pub fn user_config_text(data_dir: &Path) -> String {
+    use toml_edit::{value, Array, DocumentMut};
+    let mut doc: DocumentMut = DEFAULT_CONFIG.parse().expect("bundled config parses");
+    let db = data_dir.join("qwertea.db");
+    doc["general"]["db_path"] = value(db.to_string_lossy().as_ref());
+    let mut cmd = Array::new();
+    cmd.push("qwertea-engine");
+    cmd.push("serve");
+    doc["engine"]["command"] = value(cmd);
+    doc.to_string()
+}
+
+fn ensure_user_config() -> Option<PathBuf> {
+    let path = user_config_dir().join("config.toml");
+    if !path.is_file() {
+        let data = user_data_dir();
+        std::fs::create_dir_all(path.parent()?).ok()?;
+        let _ = std::fs::create_dir_all(&data);
+        std::fs::write(&path, user_config_text(&data)).ok()?;
+    }
+    Some(path)
+}
+
 fn find_config(start: &Path) -> Option<PathBuf> {
     let mut dir = start.to_path_buf();
     loop {
@@ -273,6 +348,21 @@ mod tests {
         assert_eq!(cfg.client.font_size, 28.0);
         assert_eq!(cfg.general.layout, "qwerty-us");
         assert_eq!(cfg.engine.command[0], "uv");
+    }
+
+    #[test]
+    fn user_config_points_to_data_dir_and_installed_engine() {
+        let text = user_config_text(Path::new("/home/u/.local/share/qwertea"));
+        let cfg = Config::parse(&text, PathBuf::from("/home/u/.config/qwertea")).unwrap();
+        assert_eq!(
+            cfg.db_path(),
+            PathBuf::from("/home/u/.local/share/qwertea/qwertea.db")
+        );
+        assert_eq!(cfg.engine.command, ["qwertea-engine", "serve"]);
+        assert!(
+            text.contains("# mailbox | immediate | fifo"),
+            "comments kept"
+        );
     }
 
     #[test]

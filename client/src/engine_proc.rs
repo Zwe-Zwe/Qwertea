@@ -126,7 +126,7 @@ impl EngineProc {
             }
             Err(e) => {
                 self.status = EngineStatus::Failed(format!(
-                    "cannot run `{}` ({e}). Install uv and run `make setup`, or start the engine yourself.",
+                    "cannot run `{}` ({e}). Is the engine installed? From a source checkout run `make setup`.",
                     cfg.engine.command.join(" ")
                 ));
             }

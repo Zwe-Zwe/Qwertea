@@ -190,7 +190,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     {
                         app.save_settings();
                     }
-                    ui.label(muted(&p, "Everything stays on this computer."));
+                    ui.label(muted(
+                        &p,
+                        format!(
+                            "Qwertea {} · everything stays on this computer.",
+                            env!("CARGO_PKG_VERSION")
+                        ),
+                    ));
                 });
             });
         });

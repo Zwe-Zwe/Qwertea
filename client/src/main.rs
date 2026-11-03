@@ -66,6 +66,14 @@ impl ApplicationHandler for Runner {
             .with_inner_size(winit::dpi::LogicalSize::new(1120.0, 760.0))
             .with_min_inner_size(winit::dpi::LogicalSize::new(760.0, 520.0))
             .with_window_icon(icon());
+        // App id / WM_CLASS, so desktops match the window to qwertea.desktop.
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let attrs = {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            use winit::platform::x11::WindowAttributesExtX11;
+            let a = WindowAttributesExtX11::with_name(attrs, "qwertea", "qwertea");
+            WindowAttributesExtWayland::with_name(a, "qwertea", "qwertea")
+        };
         match Gfx::new(event_loop, attrs, cfg.client.present_mode) {
             Ok(g) => {
                 g.window.request_redraw();
@@ -146,7 +154,32 @@ impl ApplicationHandler for Runner {
     }
 }
 
+const HELP: &str = "\
+Qwertea - an adaptive typing tutor
+
+USAGE: qwertea [--version] [--help]
+
+Settings live in config.toml: $QWERTEA_CONFIG, a source checkout's config.toml,
+or ~/.config/qwertea/config.toml (created on first run). Your typing data is
+kept in ~/.local/share/qwertea/ and never leaves this computer.";
+
 fn main() {
+    if let Some(arg) = std::env::args().nth(1) {
+        match arg.as_str() {
+            "-V" | "--version" => {
+                println!("qwertea {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "-h" | "--help" => {
+                println!("{HELP}");
+                return;
+            }
+            other => {
+                eprintln!("qwertea: unknown argument {other}\n\n{HELP}");
+                std::process::exit(2);
+            }
+        }
+    }
     let cfg = Config::load();
     let event_loop = match EventLoop::new() {
         Ok(l) => l,

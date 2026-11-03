@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -14,7 +13,7 @@ import typer
 
 from . import db
 from .layouts import Layout
-from .paths import ENGINE_DIR, Config, load_config
+from .paths import Config, load_config
 from .pipeline import Engine, Settings
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Qwertea analysis engine.")
@@ -52,9 +51,10 @@ def init(config: ConfigOpt = None) -> None:
 
 @app.command("fetch-corpus")
 def fetch_corpus() -> None:
-    """Download public-domain books and rebuild the prose corpus (data/corpora/prose)."""
-    script = ENGINE_DIR / "scripts" / "fetch_corpus.py"
-    raise typer.Exit(subprocess.call([sys.executable, str(script)]))
+    """Download public-domain books and rebuild the prose corpus."""
+    from .corpus_build import main as build_corpus
+
+    raise typer.Exit(build_corpus([]))
 
 
 @app.command("plan-calibration")
