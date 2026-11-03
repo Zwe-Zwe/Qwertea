@@ -13,7 +13,8 @@ Timing
 
 Error labels (first attempt at each target position only)
   Precedence, first match wins (`expected = text[i]`, `next` = the typed
-  character of the next keystroke). The second position of a transposition
+  character of the next keystroke, only when it was typed at position i+1;
+  after an immediate backspace there is no `next`). The second position of a transposition
   is labelled `transposition` too.
     1. transposition  typed == text[i+1] and next == text[i]
     2. omission       typed == text[i+1] and next == text[i+2]
@@ -24,6 +25,7 @@ Error labels (first attempt at each target position only)
 
 from __future__ import annotations
 
+import itertools
 import math
 import sqlite3
 import statistics
@@ -156,7 +158,7 @@ def derive_lesson(
             timeline.append(idx)
 
     prev_down: dict[int, int] = {}
-    for a, b in zip(timeline, timeline[1:], strict=False):
+    for a, b in itertools.pairwise(timeline):
         prev_down[b] = a
 
     seen_positions: set[int] = set()
@@ -167,7 +169,11 @@ def derive_lesson(
         typed = e.produced_char or ""
         first = i not in seen_positions
         seen_positions.add(i)
-        nxt = events[strokes[k + 1]].produced_char if k + 1 < len(strokes) else None
+        # Look-ahead labels only apply when the next keystroke moved on to i+1
+        # (no correction in between): a retype after a backspace is not an insertion.
+        nxt = None
+        if k + 1 < len(strokes) and events[strokes[k + 1]].target_idx == i + 1:
+            nxt = events[strokes[k + 1]].produced_char
         expected = text[i] if i < len(text) else None
         key = layout.lookup(expected) if expected is not None else None
         err = classify_error(text, i, typed, nxt, layout) if first else None
@@ -210,7 +216,9 @@ def derive_lesson(
         if r.error is not None:
             t0 = act[r.idx]
             later_bs = [b for b in backspaces if b > r.idx]
-            fixes = [q for q in rows[k + 1 :] if q.target_idx == r.target_idx and q.typed == r.expected]
+            fixes = [
+                q for q in rows[k + 1 :] if q.target_idx == r.target_idx and q.typed == r.expected
+            ]
             corrected = int(bool(fixes))
             if later_bs and fixes:
                 notice = (act[later_bs[0]] - t0) / 1e6
@@ -319,7 +327,9 @@ def underived_lessons(conn: sqlite3.Connection) -> list[int]:
 
 def rebuild_all(conn: sqlite3.Connection, layout: Layout) -> int:
     conn.execute("DELETE FROM keystrokes")
-    ids = [int(r[0]) for r in conn.execute("SELECT id FROM lessons WHERE status='done' ORDER BY id")]
+    ids = [
+        int(r[0]) for r in conn.execute("SELECT id FROM lessons WHERE status='done' ORDER BY id")
+    ]
     return sum(derive_and_store(conn, i, layout) for i in ids)
 
 

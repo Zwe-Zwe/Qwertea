@@ -8,6 +8,7 @@ lesson ends on the key-down that passes the final character.
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass, field
 
 from .db import KeyEvent
@@ -37,7 +38,9 @@ class Typist:
         k = self.layout.lookup(ch)
         return k.code if k else 0
 
-    def _push(self, t: int, code: int, down: bool, ch: str | None, bs: bool = False, marker: bool = False) -> None:
+    def _push(
+        self, t: int, code: int, down: bool, ch: str | None, bs: bool = False, marker: bool = False
+    ) -> None:
         self.events.append(
             KeyEvent(
                 lesson_id=self.lesson_id,
@@ -82,3 +85,46 @@ class Typist:
     def type_string(self, s: str, gap_ms: float = 150.0) -> None:
         for ch in s:
             self.press(ch, gap_ms)
+
+
+def complete_lesson(
+    conn: sqlite3.Connection,
+    lesson_id: int,
+    events: list[KeyEvent],
+    *,
+    kind: str = "lesson",
+    finished_at: str | None = None,
+) -> None:
+    """Store a typed lesson exactly as the client does (one transaction). Tests/simulator only."""
+    from . import db
+
+    now = finished_at or db.utc_now()
+    with db.transaction(conn):
+        sid = conn.execute(
+            "INSERT INTO sessions (started_at_utc, ended_at_utc, kind, layout, "
+            "timestamp_source, client_version) "
+            "VALUES (?, ?, ?, 'qwerty-us', 'winit', 'sim')",
+            (now, now, kind),
+        ).lastrowid
+        conn.executemany(
+            "INSERT INTO key_events VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [
+                (
+                    lesson_id,
+                    e.seq,
+                    e.t_ns,
+                    e.t_kernel_ns,
+                    e.scancode,
+                    int(e.is_down),
+                    e.produced_char,
+                    int(e.is_backspace),
+                    int(e.is_pause_marker),
+                    e.target_idx,
+                )
+                for e in events
+            ],
+        )
+        conn.execute(
+            "UPDATE lessons SET status='done', session_id=?, finished_at_utc=? WHERE id=?",
+            (sid, now, lesson_id),
+        )

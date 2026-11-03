@@ -44,7 +44,11 @@ class Corpus:
 
     def frequency(self, kind: str, value: str) -> float:
         """Relative real-text frequency in (0, 1], log-scaled so rare items still count."""
-        table = {"bigram": self.bigram_freq, "trigram": self.trigram_freq, "key": self.key_freq}.get(kind)
+        table = {
+            "bigram": self.bigram_freq,
+            "trigram": self.trigram_freq,
+            "key": self.key_freq,
+        }.get(kind)
         if kind == "word":
             c = self.word_freq.get(value, 0)
             top = max(self.word_freq.values(), default=1)

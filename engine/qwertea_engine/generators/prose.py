@@ -10,6 +10,7 @@ Adaptive lessons combine three sources (section 8.5):
 
 from __future__ import annotations
 
+import math
 import random
 import string
 from collections import Counter, defaultdict
@@ -165,6 +166,7 @@ class ProseGenerator:
         self.markov = Markov(top, [corpus.word_freq[w] for w in top])
         # Word weights for adaptive ranking; set by the caller (item value -> weakness).
         self.weights: dict[str, float] = {}
+        self.recent_sentences: list[int] = []
 
     # ------------------------------------------------------------------ protocol
 
@@ -252,13 +254,15 @@ class ProseGenerator:
             rng.shuffle(syms)
             rng.shuffle(caps)
 
-            def filler() -> str:
+            def filler(caps: list[str] = caps, digs: list[str] = digs) -> str:
                 if caps:
                     c = caps.pop()
                     pool = [x for x in words if x[0] == c.lower()] or words
                     return c + rng.choice(pool)[1:]
                 if digs and rng.random() < 0.5:
-                    return rng.choice(digs) + "".join(rng.choice(DIGITS) for _ in range(rng.randint(0, 2)))
+                    return rng.choice(digs) + "".join(
+                        rng.choice(DIGITS) for _ in range(rng.randint(0, 2))
+                    )
                 return short()
 
             parts: list[str] = [filler()]
@@ -327,7 +331,9 @@ class ProseGenerator:
         committed = sum(len(t) for ts in naturals for t in ts) + 2 * sum(map(len, probes))
         committed += len(retest_text) + len(special_text) + PSEUDO_RESERVE
         budget = max(1500, MAX_KEYSTROKES - committed)
-        chosen = greedy_cover(candidates, cov_need, lambda x: _units(" " + x + " "), budget_chars=budget)
+        chosen = greedy_cover(
+            candidates, cov_need, lambda x: _units(" " + x + " "), budget_chars=budget
+        )
         rng.shuffle(chosen)
         take(" ".join(chosen))
         coverage = [_chunk(part, lesson_chars) for part in _split_even(chosen, S)]
@@ -354,7 +360,12 @@ class ProseGenerator:
                 "special": specials[s],
             }
             for pno, phase in enumerate(phases, start=1):
-                base_meta = {"sitting": s + 1, "sittings": S, "phase_no": pno, "phases": len(phases)}
+                base_meta = {
+                    "sitting": s + 1,
+                    "sittings": S,
+                    "phase_no": pno,
+                    "phases": len(phases),
+                }
                 if phase == "probes":
                     for sub in probe_order:
                         specs.append(
@@ -366,7 +377,13 @@ class ProseGenerator:
                         )
                     continue
                 if phase == "retest":
-                    specs.append(LessonSpec(phase="retest", text=retest_text, meta={**base_meta, **PHASE_INFO["retest"]}))
+                    specs.append(
+                        LessonSpec(
+                            phase="retest",
+                            text=retest_text,
+                            meta={**base_meta, **PHASE_INFO["retest"]},
+                        )
+                    )
                     continue
                 for text in texts[phase]:
                     if text.strip():
@@ -422,16 +439,33 @@ class ProseGenerator:
     # ------------------------------------------------------------------ adaptive
 
     def _candidate_words(self, value: str, max_len: int) -> list[str]:
+        """Words carrying `value`; a leading/trailing space means word start/end."""
         v = value.lower()
-        return [w for w in self.corpus.words[:10000] if v in w and len(w) <= max_len]
+        core = v.strip()
+        if not core:
+            return []
+        start, end = v.startswith(" "), v.endswith(" ")
+
+        def ok(w: str) -> bool:
+            if start and end:
+                return w == core
+            if start:
+                return w.startswith(core)
+            if end:
+                return w.endswith(core)
+            return core in w
+
+        return [w for w in self.corpus.words[:10000] if len(w) <= max_len and ok(w)]
 
     def _word_score(self, w: str) -> float:
         padded = f" {w} "
         s = sum(self.weights.get(g, 0.0) for g in ngrams(padded, 2) + ngrams(padded, 3))
         s += sum(self.weights.get(ch, 0.0) for ch in w)
-        return s / (len(w) ** 0.5)
+        return s / math.sqrt(len(w))
 
-    def drill_words(self, target: Item, n: int, difficulty: Difficulty, used: Counter[str]) -> list[str]:
+    def drill_words(
+        self, target: Item, n: int, difficulty: Difficulty, used: Counter[str]
+    ) -> list[str]:
         if target.kind == "word":
             return [target.value] * max(1, n // 3)
         cands = self._candidate_words(target.value, difficulty.max_word_len)
@@ -444,12 +478,18 @@ class ProseGenerator:
             )
             pool = scored[:40]
             for _ in range(n):
-                best = max(pool, key=lambda w: self._word_score(w) * 0.5 ** used[w] + self.rng.random() * 0.05)
+                best = max(
+                    pool,
+                    key=lambda w: self._word_score(w) * 0.5 ** used[w] + self.rng.random() * 0.05,
+                )
                 picks.append(best)
                 used[best] += 1
         # Too few real words: top up with Markov pseudo-words built around the target.
-        while len(set(picks)) < min(3, n) and target.kind in ("bigram", "trigram"):
-            pw = self.markov.word_with(target.value.lower(), self.rng, difficulty.max_word_len)
+        core = target.value.lower().strip()
+        while (
+            len(set(picks)) < min(3, n) and target.kind in ("bigram", "trigram") and len(core) >= 2
+        ):
+            pw = self.markov.word_with(core, self.rng, difficulty.max_word_len)
             picks.append(pw)
             if len(picks) > n + 3:
                 break
@@ -472,18 +512,22 @@ class ProseGenerator:
                             break
         if not cand_ids:
             cand_ids = set(self.rng.sample(range(len(self.corpus.sentences)), 300))
-        best, best_score = None, 0.0
+        scored: list[tuple[float, int]] = []
         for i in cand_ids:
             s = self.corpus.sentences[i]
-            if len(s) > max_chars or len(s) < 30:
+            if len(s) > max_chars or len(s) < 30 or i in self.recent_sentences:
                 continue
             low = s.lower()
             hits = sum(low.count(g) for g in tri) * 1.5 + sum(low.count(g) for g in bi)
             hits += sum(s.count(k) for k in keys) * 0.5
-            score = hits / len(s) + self.rng.random() * 1e-3
-            if score > best_score:
-                best, best_score = s, score
-        return best
+            scored.append((hits / len(s), i))
+        if not scored:
+            return None
+        scored.sort(reverse=True)
+        _, pick = self.rng.choice(scored[:5])  # some variety among the best matches
+        self.recent_sentences.append(pick)
+        del self.recent_sentences[:-500]
+        return self.corpus.sentences[pick]
 
     def generate(
         self,
@@ -528,8 +572,13 @@ class ProseGenerator:
         return LessonSpec(
             phase=phase,
             text=text,
-            targets=[{"kind": t.item.kind, "item": t.item.value, "reason": t.reason} for t in targets],
-            meta={"title": PHASE_INFO[phase]["title"], "instruction": PHASE_INFO[phase]["instruction"]},
+            targets=[
+                {"kind": t.item.kind, "item": t.item.value, "reason": t.reason} for t in targets
+            ],
+            meta={
+                "title": PHASE_INFO[phase]["title"],
+                "instruction": PHASE_INFO[phase]["instruction"],
+            },
         )
 
     def probe_lesson(self) -> LessonSpec:
@@ -581,17 +630,53 @@ def _unit_group(u: str) -> str:
 PHASE_INFO: dict[str, dict[str, str]] = {
     "warmup": {"title": "Warm-up", "instruction": "Loosen up. This block is not scored."},
     "natural": {"title": "Natural text", "instruction": "Type at your normal, comfortable pace."},
-    "coverage": {"title": "Word coverage", "instruction": "A mix of words chosen to sample every letter pattern."},
-    "pseudo": {"title": "Rare patterns", "instruction": "Made-up words with rare letter pairs. Take them steadily."},
-    "special": {"title": "Capitals, numbers & symbols", "instruction": "Shifted keys, digits, punctuation and line breaks."},
-    "speed": {"title": "Speed probe", "instruction": "Type this as FAST as you can. Errors are fine."},
-    "accuracy": {"title": "Accuracy probe", "instruction": "Type this as ACCURATELY as you can. Take your time."},
-    "retest": {"title": "Retest", "instruction": "A passage from your first sitting, to measure your progress."},
-    "drill": {"title": "Focused practice", "instruction": "Built from your weakest keys and letter patterns."},
-    "review": {"title": "Review", "instruction": "Patterns you improved, checked again before you forget them."},
+    "coverage": {
+        "title": "Word coverage",
+        "instruction": "A mix of words chosen to sample every letter pattern.",
+    },
+    "pseudo": {
+        "title": "Rare patterns",
+        "instruction": "Made-up words with rare letter pairs. Take them steadily.",
+    },
+    "special": {
+        "title": "Capitals, numbers & symbols",
+        "instruction": "Shifted keys, digits, punctuation and line breaks.",
+    },
+    "speed": {
+        "title": "Speed probe",
+        "instruction": "Type this as FAST as you can. Errors are fine.",
+    },
+    "accuracy": {
+        "title": "Accuracy probe",
+        "instruction": "Type this as ACCURATELY as you can. Take your time.",
+    },
+    "retest": {
+        "title": "Retest",
+        "instruction": "A passage from your first sitting, to measure your progress.",
+    },
+    "drill": {
+        "title": "Focused practice",
+        "instruction": "Built from your weakest keys and letter patterns.",
+    },
+    "review": {
+        "title": "Review",
+        "instruction": "Patterns you improved, checked again before you forget them.",
+    },
     "mixed": {"title": "Practice", "instruction": "Natural text at your level."},
-    "probe": {"title": "Checkpoint", "instruction": "The same short passage every time, to track your progress."},
+    "probe": {
+        "title": "Checkpoint",
+        "instruction": "The same short passage every time, to track your progress.",
+    },
 }
 
 
-__all__ = ["PHASE_INFO", "VERSION", "Difficulty", "LessonSpec", "Markov", "ProseGenerator", "Target", "item_counts"]
+__all__ = [
+    "PHASE_INFO",
+    "VERSION",
+    "Difficulty",
+    "LessonSpec",
+    "Markov",
+    "ProseGenerator",
+    "Target",
+    "item_counts",
+]

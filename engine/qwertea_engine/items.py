@@ -26,7 +26,9 @@ class Item:
 def ngrams(text: str, n: int) -> list[str]:
     """Lower-cased character n-grams that contain no newline or tab."""
     low = text.lower()
-    return [low[i : i + n] for i in range(len(low) - n + 1) if not set(low[i : i + n]) & {"\n", "\t"}]
+    return [
+        low[i : i + n] for i in range(len(low) - n + 1) if not set(low[i : i + n]) & {"\n", "\t"}
+    ]
 
 
 def words(text: str) -> list[str]:

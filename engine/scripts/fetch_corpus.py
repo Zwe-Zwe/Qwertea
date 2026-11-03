@@ -42,8 +42,15 @@ DEFAULT_OUT = Path(__file__).resolve().parents[1] / "data" / "corpora" / "prose"
 
 PRINTABLE = set(chr(c) for c in range(32, 127))
 REPLACE = {
-    "‘": "'", "’": "'", "“": '"', "”": '"',
-    "—": "-", "–": "-", "…": "...", "_": "", "æ": "ae",
+    "‘": "'",
+    "’": "'",
+    "“": '"',
+    "”": '"',
+    "—": "-",
+    "–": "-",
+    "…": "...",
+    "_": "",
+    "æ": "ae",
 }
 SPLIT = re.compile(r"(?<=[.!?])[\"']?\s+(?=[\"']?[A-Z])")
 WORD = re.compile(r"[a-z]+(?:'[a-z]+)?")
@@ -69,7 +76,7 @@ def good_sentence(s: str) -> bool:
         return False
     if re.search(r"[\[\]{}<>|\\#*@]|\d{4,}", s):
         return False
-    return not s.count("(") != s.count(")")
+    return s.count("(") == s.count(")")
 
 
 def normalise_quotes(s: str) -> str:
@@ -131,7 +138,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--from-dir", type=Path, help="use already-downloaded .txt files instead")
     args = ap.parse_args(argv)
     if args.from_dir:
-        texts = {n: (args.from_dir / n).read_text(encoding="utf-8", errors="replace") for n in BOOKS}
+        texts = {
+            n: (args.from_dir / n).read_text(encoding="utf-8", errors="replace") for n in BOOKS
+        }
     else:
         print(f"downloading {URL} ...", file=sys.stderr)
         texts = download()

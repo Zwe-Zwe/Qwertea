@@ -78,6 +78,21 @@ def test_correction_tracking() -> None:
     assert retry[0].flight_ms == pytest.approx(150.0)
 
 
+def test_immediate_correction_is_not_an_insertion() -> None:
+    text = "cats"
+    t = Typist(text, LAYOUT)
+    t.type_string("cp")  # p is not next to a
+    t.press(BACKSPACE)
+    t.type_string("ats")
+    ks = derive_lesson(text, t.events, LAYOUT)
+    assert first_errors(ks)[1] == "substitution"
+    t = Typist(text, LAYOUT)
+    t.type_string("cs")  # s is next to a
+    t.press(BACKSPACE)
+    t.type_string("ats")
+    assert first_errors(derive_lesson(text, t.events, LAYOUT))[1] == "adjacent_slip"
+
+
 def test_uncorrected_error() -> None:
     ks = run("cats", "cpts")
     err = next(k for k in ks if k.error_type)
@@ -172,8 +187,18 @@ def _store_lesson(conn: object, text: str, keys: str) -> int:
     conn.executemany(
         "INSERT INTO key_events VALUES (?,?,?,?,?,?,?,?,?,?)",
         [
-            (e.lesson_id, e.seq, e.t_ns, e.t_kernel_ns, e.scancode, int(e.is_down),
-             e.produced_char, int(e.is_backspace), int(e.is_pause_marker), e.target_idx)
+            (
+                e.lesson_id,
+                e.seq,
+                e.t_ns,
+                e.t_kernel_ns,
+                e.scancode,
+                int(e.is_down),
+                e.produced_char,
+                int(e.is_backspace),
+                int(e.is_pause_marker),
+                e.target_idx,
+            )
             for e in t.events
         ],
     )

@@ -40,7 +40,7 @@ def greedy_cover(
     chosen: list[str] = []
     spent = 0
     while heap and spent < budget_chars:
-        neg, cand = heapq.heappop(heap)
+        _, cand = heapq.heappop(heap)
         if uses[cand] >= max_uses:
             continue
         g = gain(units[cand], need)

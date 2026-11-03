@@ -49,6 +49,7 @@ def load_config(path: Path | None = None) -> Config:
     with path.open("rb") as f:
         return Config(root=path.resolve().parent, raw=tomllib.load(f))
 
+
 BUNDLED_DIR = ENGINE_DIR / "data" / "bundled"
 CORPORA_DIR = ENGINE_DIR / "data" / "corpora"
 
