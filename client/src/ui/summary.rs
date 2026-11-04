@@ -47,7 +47,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .id_salt("summary_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            let full = ui.available_width().min(1040.0);
+            super::widgets::page(ui, super::PAGE_WIDTH, |ui| {
+            let full = ui.available_width();
             ui.horizontal(|ui| {
                 ui.label(eyebrow(&p, &format!("Lesson notes · {}", lesson.title())));
                 if !saved {
@@ -168,6 +169,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     go_home = true;
                 }
             });
+        });
         });
     let (enter, esc) = ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
     if (go_next || enter) && saved && app.next.is_some() {

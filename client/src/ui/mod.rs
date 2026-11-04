@@ -172,6 +172,9 @@ fn sidebar(app: &mut App, ui: &mut Ui) {
     });
 }
 
+/// Maximum width of a page's content column; wider windows get even margins.
+pub const PAGE_WIDTH: f32 = 1560.0;
+
 /// Format seconds as m:ss.
 pub fn clock(secs: f64) -> String {
     let s = secs.max(0.0) as u64;

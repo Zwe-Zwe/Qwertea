@@ -57,7 +57,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .id_salt("home_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            let full = ui.available_width().min(1040.0);
+            super::widgets::page(ui, super::PAGE_WIDTH, |ui| {
+            let full = ui.available_width();
             ui.label(eyebrow(&p, "Practice"));
             ui.label(strong(greeting(app), 30.0).color(p.text));
             ui.add_space(14.0);
@@ -118,8 +119,112 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         app.confirm_skip_calibration = true;
                     }
                 });
+                ui.add_space(gap);
+            }
+            if !app.history.lessons.is_empty() {
+                if full >= 900.0 {
+                    super::widgets::split(
+                        ui,
+                        full,
+                        0.5,
+                        gap,
+                        |ui, w| recent_card(app, ui, w),
+                        |ui, w| focus_card(app, ui, w),
+                    );
+                } else {
+                    recent_card(app, ui, full);
+                    ui.add_space(gap);
+                    focus_card(app, ui, full);
+                }
             }
         });
+        });
+}
+
+/// The last few lessons, newest first.
+fn recent_card(app: &App, ui: &mut Ui, w: f32) {
+    let p = app.palette;
+    card(ui, &p, |ui| {
+        ui.set_width(w - 40.0);
+        ui.label(eyebrow(&p, "Recent lessons"));
+        ui.add_space(2.0);
+        let rows: Vec<_> = app.history.lessons.iter().rev().take(6).collect();
+        egui::Grid::new("recent")
+            .num_columns(4)
+            .spacing([24.0, 8.0])
+            .show(ui, |ui| {
+                for h in ["#", "lesson", "speed", "accuracy"] {
+                    ui.label(eyebrow(&p, h));
+                }
+                ui.end_row();
+                for (n, wpm, acc, _secs, phase) in rows {
+                    ui.label(muted(&p, n.to_string()));
+                    ui.label(phase_name(phase));
+                    ui.label(RichText::new(format!("{wpm:.0} wpm")).color(p.text));
+                    let c = if *acc >= 0.96 {
+                        p.good
+                    } else if *acc >= 0.92 {
+                        p.text
+                    } else {
+                        p.error
+                    };
+                    ui.label(RichText::new(format!("{:.1}%", 100.0 * acc)).color(c));
+                    ui.end_row();
+                }
+            });
+    });
+}
+
+/// The engine's current top weak letter pairs.
+fn focus_card(app: &App, ui: &mut Ui, w: f32) {
+    let p = app.palette;
+    card(ui, &p, |ui| {
+        ui.set_width(w - 40.0);
+        ui.label(eyebrow(&p, "Focus areas"));
+        ui.label(
+            muted(
+                &p,
+                "Letter pairs the engine is steering your lessons toward.",
+            )
+            .size(13.0),
+        );
+        ui.add_space(4.0);
+        let items: Vec<_> = app
+            .weak_bigrams
+            .iter()
+            .filter(|i| i.weakness > 0.0)
+            .take(6)
+            .collect();
+        let max = items.iter().map(|i| i.weakness).fold(0.1, f64::max);
+        let rows: Vec<(String, f32, String)> = items
+            .iter()
+            .map(|i| {
+                (
+                    i.item.clone(),
+                    (i.weakness / max) as f32,
+                    format!("{:.0}% slips", 100.0 * i.p_error),
+                )
+            })
+            .collect();
+        super::widgets::bar_list(ui, &p, &rows, p.accent2);
+    });
+}
+
+fn phase_name(phase: &str) -> &str {
+    match phase {
+        "drill" => "focused practice",
+        "review" => "review",
+        "mixed" => "practice",
+        "probe" => "checkpoint",
+        "natural" => "calibration · prose",
+        "coverage" => "calibration · coverage",
+        "pseudo" => "calibration · rare pairs",
+        "special" => "calibration · symbols",
+        "speed" => "speed probe",
+        "accuracy" => "accuracy probe",
+        "retest" => "retest",
+        other => other,
+    }
 }
 
 fn greeting(app: &App) -> String {

@@ -11,6 +11,48 @@ use egui::{
 };
 use std::collections::HashMap;
 
+/// A page column: at most `max_w` wide and centred, so wide or full-screen
+/// windows get balanced margins instead of an empty band on one side.
+pub fn page<R>(ui: &mut Ui, max_w: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let avail = ui.available_width();
+    let w = avail.min(max_w);
+    let pad = ((avail - w) / 2.0).max(0.0);
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space(pad);
+        ui.vertical(|ui| {
+            ui.set_width(w);
+            add(ui)
+        })
+        .inner
+    })
+    .inner
+}
+
+/// Two columns side by side: `ratio` of the width (minus `gap`) on the left.
+pub fn split(
+    ui: &mut Ui,
+    total: f32,
+    ratio: f32,
+    gap: f32,
+    left: impl FnOnce(&mut Ui, f32),
+    right: impl FnOnce(&mut Ui, f32),
+) {
+    let lw = ((total - gap) * ratio).floor();
+    let rw = total - gap - lw;
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        ui.vertical(|ui| {
+            ui.set_width(lw);
+            left(ui, lw);
+        });
+        ui.vertical(|ui| {
+            ui.set_width(rw);
+            right(ui, rw);
+        });
+    });
+}
+
 pub fn card<R>(ui: &mut Ui, p: &Palette, add: impl FnOnce(&mut Ui) -> R) -> R {
     egui::Frame::new()
         .fill(p.panel)
