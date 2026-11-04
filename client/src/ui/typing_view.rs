@@ -247,7 +247,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // ---------------------------------------------------------------- stat strip
     let secs = if started {
-        run.active_ns(now_ns) as f64 / 1e9
+        run.elapsed_ns(now_ns) as f64 / 1e9
     } else {
         0.0
     };
@@ -272,7 +272,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         },
     ));
     items.push(("time", super::clock(secs)));
-    items.push(("to go", format!("{}", target.len().saturating_sub(cursor))));
+    let (words_done, words_total) = run.word_progress();
+    items.push(("words", format!("{words_done}/{words_total}")));
     let strip_y = sheet.bottom() + 26.0;
     let slot = sheet_w / items.len() as f32;
     for (i, (label, value)) in items.iter().enumerate() {

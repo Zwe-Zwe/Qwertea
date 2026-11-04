@@ -147,6 +147,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                             row("raw speed", format!("{:.0} wpm", s.raw_wpm));
                             row("consistency", format!("{:.0}%", s.consistency));
                             row("time", super::clock(s.seconds));
+                            row("words", s.word_count.to_string());
                             row("keystrokes", s.keystrokes.to_string());
                             row("first-try slips", s.errors.to_string());
                             row("fixed / left wrong", format!("{} / {}", s.corrected, s.incorrect));

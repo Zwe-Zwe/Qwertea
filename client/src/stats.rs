@@ -45,6 +45,8 @@ pub struct LessonStats {
     pub words: Vec<WordSample>,
     /// Per text position: was the first attempt wrong?
     pub first_wrong: Vec<bool>,
+    /// Words in the lesson text.
+    pub word_count: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -104,15 +106,14 @@ pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
     let mut first_wrong: Vec<Option<bool>> = vec![None; target.len()];
     // Active time at which each position was first typed.
     let mut first_time: Vec<Option<u64>> = vec![None; target.len()];
-    let mut cursor = 0usize;
     let mut paused = false;
-    // (active time, char typed, correct?) for each accepted text keystroke.
+    // (active time, correct?) for each text keystroke, accepted or blocked.
     let mut strokes: Vec<(u64, bool)> = Vec::new();
     let mut flights: HashMap<String, Vec<f64>> = HashMap::new();
     let mut last_down: Option<u64> = None;
     let mut backspaces = 0;
     let mut corrected = 0;
-    for e in events {
+    for (k, e) in events.iter().enumerate() {
         if e.is_pause_marker {
             paused = e.is_down;
             continue;
@@ -121,29 +122,37 @@ pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
             continue;
         }
         let t = active(e.t_ns, &pauses);
+        // The cursor position is taken from the event itself, so lessons
+        // typed with stop-on-error or strict-word replay correctly.
+        let i = e.target_idx as usize;
         if e.is_backspace {
             backspaces += 1;
             last_down = Some(t);
-            if cursor > 0 {
-                cursor -= 1;
-                typed[cursor] = None;
+            if i > 0 && i <= target.len() {
+                typed[i - 1] = None;
             }
             continue;
         }
         let Some(c) = e.produced_char else { continue };
-        if cursor >= target.len() {
+        if i >= target.len() {
             continue;
         }
-        let ok = c == target[cursor];
-        match first_wrong[cursor] {
+        let ok = c == target[i];
+        // Did the caret move on? The next event's cursor tells (blocked keys
+        // leave it in place); the final keystroke has no successor.
+        let advanced = events[k + 1..]
+            .iter()
+            .find(|n| !n.is_pause_marker)
+            .map_or(i + 1 == target.len(), |n| n.target_idx as usize == i + 1);
+        match first_wrong[i] {
             None => {
-                first_wrong[cursor] = Some(!ok);
-                first_time[cursor] = Some(t);
-                if ok && cursor > 0 {
+                first_wrong[i] = Some(!ok);
+                first_time[i] = Some(t);
+                if ok && i > 0 {
                     if let Some(prev) = last_down {
                         let f = t.saturating_sub(prev);
                         if f > 0 && f < THINK_PAUSE_NS {
-                            let bigram: String = target[cursor - 1..=cursor]
+                            let bigram: String = target[i - 1..=i]
                                 .iter()
                                 .map(|c| c.to_ascii_lowercase())
                                 .collect();
@@ -157,10 +166,11 @@ pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
             Some(true) if ok => corrected += 1,
             _ => {}
         }
-        typed[cursor] = Some(c);
+        if advanced {
+            typed[i] = Some(c);
+        }
         strokes.push((t, ok));
         last_down = Some(t);
-        cursor += 1;
     }
 
     let mut s = LessonStats {
@@ -188,18 +198,15 @@ pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
         }
     }
     s.missed_keys = missed.into_iter().collect();
-    s.missed_keys
-        .sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    s.missed_keys.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
     if let (Some(&(t0, _)), Some(&(t1, _))) = (strokes.first(), strokes.last()) {
-        // Count the first keystroke's own interval: n strokes span n-1 gaps.
-        let n = strokes.len() as f64;
-        let span = (t1 - t0) as f64 / 1e9;
-        let secs = if n > 1.0 { span * n / (n - 1.0) } else { 0.0 };
+        // Time runs from the first keystroke to the last (decision D27).
+        let secs = (t1 - t0) as f64 / 1e9;
         s.seconds = secs;
         if secs > 0.0 {
             s.wpm = s.correct as f64 / 5.0 / (secs / 60.0);
-            s.raw_wpm = n / 5.0 / (secs / 60.0);
+            s.raw_wpm = strokes.len() as f64 / 5.0 / (secs / 60.0);
         }
         // Per-second samples.
         let total_secs = secs.ceil().max(1.0) as usize;
@@ -247,7 +254,23 @@ pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
     s.slowest_bigrams = slow;
     s.first_wrong = first_wrong.iter().map(|w| *w == Some(true)).collect();
     s.words = word_samples(&target, &first_time, &s.first_wrong);
+    s.word_count = count_words(&target);
     s
+}
+
+/// Whitespace-separated words in the text.
+pub fn count_words(target: &[char]) -> usize {
+    let mut n = 0;
+    let mut in_word = false;
+    for c in target {
+        if c.is_whitespace() {
+            in_word = false;
+        } else if !in_word {
+            n += 1;
+            in_word = true;
+        }
+    }
+    n
 }
 
 /// Per-word speed: the time from the keystroke before the word (usually the
@@ -290,6 +313,7 @@ fn word_samples(target: &[char], times: &[Option<u64>], wrong: &[bool]) -> Vec<W
 mod tests {
     use super::*;
     use crate::session::{KeyInput, KeyKind, LessonRun};
+    use serde_json;
 
     const MS: u64 = 1_000_000;
 
@@ -324,11 +348,12 @@ mod tests {
 
     #[test]
     fn perfect_lesson() {
-        // 10 chars, one every 120 ms => 1.2 s => 10/5/0.02 = 100 WPM.
+        // 10 chars, one every 120 ms: first key at 0.12 s, last at 1.20 s,
+        // so 1.08 s of typing => 10/5 / (1.08/60) = 111.1 WPM.
         let ev = run("abcde fghi", &chars("abcde fghi", 120));
         let s = compute("abcde fghi", &ev);
-        assert!((s.seconds - 1.2).abs() < 1e-9);
-        assert!((s.wpm - 100.0).abs() < 1e-6, "{}", s.wpm);
+        assert!((s.seconds - 1.08).abs() < 1e-9);
+        assert!((s.wpm - 2.0 / (1.08 / 60.0)).abs() < 1e-6, "{}", s.wpm);
         assert_eq!(s.raw_wpm, s.wpm);
         assert_eq!(s.accuracy, 1.0);
         assert_eq!((s.correct, s.incorrect, s.errors), (10, 0, 0));
@@ -363,7 +388,7 @@ mod tests {
         let ev = run("abc", &keys);
         let s = compute("abc", &ev);
         // a@100, b@200, pause 250..10250 (10 s removed), c@10350 -> active 350.
-        assert!((s.seconds - 0.375).abs() < 1e-9, "{}", s.seconds);
+        assert!((s.seconds - 0.25).abs() < 1e-9, "{}", s.seconds);
         assert_eq!(
             s.slowest_bigrams[0].1, 150.0,
             "b -> c flight excludes the pause"
@@ -383,6 +408,87 @@ mod tests {
         assert!((s.words[1].wpm - 180.0).abs() < 1e-6);
         assert_eq!(s.words[1].errors, 1);
         assert_eq!(s.first_wrong, vec![false, false, false, true, false]);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Golden {
+        text: String,
+        events: Vec<GoldenEvent>,
+        expected: Expected,
+    }
+    #[derive(serde::Deserialize)]
+    struct GoldenEvent {
+        t_ns: u64,
+        scancode: u32,
+        is_down: bool,
+        produced_char: Option<String>,
+        is_backspace: bool,
+        is_pause_marker: bool,
+    }
+    #[derive(serde::Deserialize)]
+    struct Expected {
+        seconds: f64,
+        wpm: f64,
+        raw_wpm: f64,
+        accuracy: f64,
+        correct: usize,
+        errors: usize,
+        keystrokes: usize,
+        backspaces: usize,
+        words: usize,
+    }
+
+    /// The shared, hand-worked golden lesson (testdata/wpm_golden.json): the
+    /// engine's test checks the same numbers.
+    #[test]
+    fn golden_lesson_matches_hand_worked_numbers() {
+        let g: Golden =
+            serde_json::from_str(include_str!("../../testdata/wpm_golden.json")).unwrap();
+        // Drive the real LessonRun with the fixture's key sequence.
+        let mut r = LessonRun::new(&g.text, false);
+        for e in g.events.iter().filter(|e| !e.is_pause_marker) {
+            let kind = if e.is_backspace {
+                KeyKind::Backspace
+            } else if let Some(c) = e.produced_char.as_ref().and_then(|s| s.chars().next()) {
+                KeyKind::Text(c)
+            } else if e.scancode == 1 {
+                KeyKind::Escape
+            } else {
+                KeyKind::Other
+            };
+            r.on_key(e.t_ns, KeyInput { scancode: e.scancode, is_down: e.is_down, kind });
+        }
+        let x = &g.expected;
+        let live_wpm = r.live_wpm(u64::MAX);
+        let live_secs = r.elapsed_ns(u64::MAX) as f64 / 1e9;
+        let s = compute(&g.text, r.events());
+        assert!((s.seconds - x.seconds).abs() < 1e-9, "seconds {}", s.seconds);
+        assert!((s.wpm - x.wpm).abs() < 1e-9, "wpm {}", s.wpm);
+        assert!((s.raw_wpm - x.raw_wpm).abs() < 1e-9, "raw {}", s.raw_wpm);
+        assert!((s.accuracy - x.accuracy).abs() < 1e-12);
+        assert_eq!(
+            (s.correct, s.errors, s.keystrokes, s.backspaces, s.word_count),
+            (x.correct, x.errors, x.keystrokes, x.backspaces, x.words)
+        );
+        // The live counter at the end equals the result screen.
+        assert!((live_wpm - x.wpm).abs() < 1e-9, "live wpm {live_wpm}");
+        assert!((live_secs - x.seconds).abs() < 1e-9, "live secs {live_secs}");
+        assert_eq!(r.word_progress(), (2, 2));
+    }
+
+    #[test]
+    fn stop_on_error_lessons_replay_correctly() {
+        let mut r = LessonRun::new("ab", true);
+        let mut t = 0;
+        for c in ['a', 'x', 'x', 'b'] {
+            t += 100 * MS;
+            r.on_key(t, KeyInput { scancode: 1, is_down: true, kind: KeyKind::Text(c) });
+            r.on_key(t + 10 * MS, KeyInput { scancode: 1, is_down: false, kind: KeyKind::Text(c) });
+        }
+        let s = compute("ab", r.events());
+        // Both positions end correct; the blocked 'x' keys are slips, not typed text.
+        assert_eq!((s.correct, s.incorrect, s.errors, s.keystrokes), (2, 0, 1, 4));
+        assert!((s.wpm - r.live_wpm(u64::MAX)).abs() < 1e-9);
     }
 
     #[test]

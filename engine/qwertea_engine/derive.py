@@ -275,6 +275,48 @@ class _Row:
     row: int | None
 
 
+@dataclass(frozen=True)
+class LessonTiming:
+    """Lesson time and counts under the shared definition (decision D27)."""
+
+    seconds: float  # first text keystroke -> last, pauses excluded
+    keystrokes: int  # text key-downs, accepted or blocked
+    correct: int  # positions correct at the end
+
+
+def lesson_timing(text: str, events: list[db.KeyEvent]) -> LessonTiming:
+    """Time from the first text keystroke to the last (pauses excluded) and the
+    characters correct at the end, replayed from each event's recorded cursor
+    so stop-on-error and strict-word lessons are handled. Mirrors
+    `client/src/stats.rs` exactly; both are tested on testdata/wpm_golden.json.
+    """
+    pauses = _pause_adjuster(events)
+    typed: dict[int, str | None] = {}
+    times: list[int] = []
+    paused = False
+    for k, e in enumerate(events):
+        if e.is_pause_marker:
+            paused = e.is_down
+            continue
+        if not e.is_down or paused:
+            continue
+        i = e.target_idx
+        if e.is_backspace:
+            if 0 < i <= len(text):
+                typed[i - 1] = None
+            continue
+        if e.produced_char is None or i >= len(text):
+            continue
+        nxt = next((n for n in events[k + 1 :] if not n.is_pause_marker), None)
+        advanced = (nxt.target_idx == i + 1) if nxt is not None else (i + 1 == len(text))
+        if advanced:
+            typed[i] = e.produced_char
+        times.append(_active_time(e.t_ns, pauses))
+    seconds = (times[-1] - times[0]) / 1e9 if times else 0.0
+    correct = sum(1 for i, c in typed.items() if c is not None and c == text[i])
+    return LessonTiming(seconds, len(times), correct)
+
+
 def _parse_utc(s: str | None) -> datetime | None:
     if not s:
         return None

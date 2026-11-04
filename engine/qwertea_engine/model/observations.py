@@ -14,6 +14,8 @@ import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+from ..db import load_key_events
+from ..derive import lesson_timing
 from ..items import Item, context_items, word_spans
 
 
@@ -46,6 +48,7 @@ class LessonObs:
 
     @property
     def wpm(self) -> float:
+        """Net WPM, same definition as the app (decision D27)."""
         return (
             (self.correct_chars / 5.0) / (self.active_ms / 60000.0) if self.active_ms > 0 else 0.0
         )
@@ -84,12 +87,11 @@ def collect(
             (les["id"],),
         ).fetchall()
         first: dict[int, tuple[int, float | None]] = {}
-        active = 0.0
         etypes: dict[str, int] = defaultdict(int)
+        # Lesson time and correct characters: the shared definition (D27).
+        timing = lesson_timing(text, load_key_events(conn, les["id"]))
         for r in rows:
             f = r["flight_ms"]
-            if f is not None:
-                active += min(f, think_pause_ms)
             if r["is_first_attempt"] and r["target_idx"] < len(text):
                 err = int(r["error_type"] is not None)
                 lat = math.log(f) if f is not None and 0 < f <= think_pause_ms else None
@@ -102,11 +104,7 @@ def collect(
                         session_pos.append((r["session_pos"], lat))
                 if r["post_error_slowdown_ms"] is not None:
                     slowdowns.append(r["post_error_slowdown_ms"])
-        # Final state of each position decides "correct characters" for WPM.
-        final: dict[int, str] = {}
-        for r in rows:
-            final[r["target_idx"]] = r["typed"]
-        correct = sum(1 for i, ch in final.items() if i < len(text) and ch == text[i])
+        correct = timing.correct
         for i, (err, lat) in first.items():
             for it in context_items(text, i):
                 o = items[it]
@@ -138,7 +136,7 @@ def collect(
                 chars=len(text),
                 first_attempts=len(first),
                 first_errors=sum(e for e, _ in first.values()),
-                active_ms=active,
+                active_ms=timing.seconds * 1000.0,
                 correct_chars=correct,
                 targets_json=les["targets_json"],
                 error_types=dict(etypes),

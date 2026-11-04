@@ -68,6 +68,29 @@ pub struct RunSummary {
     pub errors: usize,
 }
 
+/// What happens when a wrong key is pressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ErrorMode {
+    /// The caret moves on; the mistake is marked and can be fixed with Backspace.
+    #[default]
+    Normal,
+    /// The caret waits until the right key is pressed.
+    StopOnError,
+    /// Mistakes may be made, but a word cannot be finished (space, Enter or
+    /// the last character) until its mistakes are fixed.
+    StrictWord,
+}
+
+impl From<bool> for ErrorMode {
+    fn from(stop_on_error: bool) -> Self {
+        if stop_on_error {
+            Self::StopOnError
+        } else {
+            Self::Normal
+        }
+    }
+}
+
 pub struct LessonRun {
     target: Vec<char>,
     typed: Vec<Option<char>>,
@@ -76,13 +99,18 @@ pub struct LessonRun {
     cursor: usize,
     events: Vec<KeyEvent>,
     state: RunState,
-    stop_on_error: bool,
+    mode: ErrorMode,
     pause_started_ns: u64,
     paused_total_ns: u64,
     finished_at_ns: u64,
     last_t_ns: u64,
     held: Vec<u32>,
-    /// Set when `stop_on_error` blocked a wrong key; cleared on next press.
+    /// Active time (pause excluded) of the first and the latest accepted
+    /// text key-down, and how many there were (right or wrong).
+    first_key_active: Option<u64>,
+    last_key_active: u64,
+    text_keys: u32,
+    /// Set when the error mode blocked a key; cleared on the next press.
     pub blocked_error: bool,
 }
 
@@ -93,7 +121,7 @@ pub fn normalize_text(text: &str) -> Vec<char> {
 }
 
 impl LessonRun {
-    pub fn new(text: &str, stop_on_error: bool) -> Self {
+    pub fn new(text: &str, mode: impl Into<ErrorMode>) -> Self {
         let target = normalize_text(text);
         let n = target.len();
         Self {
@@ -107,12 +135,15 @@ impl LessonRun {
             } else {
                 RunState::Running
             },
-            stop_on_error,
+            mode: mode.into(),
             pause_started_ns: 0,
             paused_total_ns: 0,
             finished_at_ns: 0,
             last_t_ns: 0,
             held: Vec::with_capacity(32),
+            first_key_active: None,
+            last_key_active: 0,
+            text_keys: 0,
             blocked_error: false,
         }
     }
@@ -190,11 +221,22 @@ impl LessonRun {
 
     fn type_char(&mut self, t_ns: u64, c: char) {
         let i = self.cursor;
+        let active = t_ns.saturating_sub(self.paused_total_ns);
+        if self.first_key_active.is_none() {
+            self.first_key_active = Some(active);
+        }
+        self.last_key_active = active;
+        self.text_keys += 1;
         let correct = c == self.target[i];
         if self.first_wrong[i].is_none() {
             self.first_wrong[i] = Some(!correct);
         }
-        if !correct && self.stop_on_error {
+        let blocked = match self.mode {
+            ErrorMode::Normal => false,
+            ErrorMode::StopOnError => !correct,
+            ErrorMode::StrictWord => self.word_blocks(i, correct),
+        };
+        if blocked {
             self.blocked_error = true;
             return;
         }
@@ -205,6 +247,24 @@ impl LessonRun {
             self.state = RunState::Finished;
             self.finished_at_ns = t_ns;
         }
+    }
+
+    /// Strict-word rule: finishing a word (typing at a space/newline/tab, or
+    /// the last character) is refused while that word still has mistakes.
+    fn word_blocks(&self, i: usize, correct: bool) -> bool {
+        let at_boundary = self.target[i].is_whitespace();
+        let last = i + 1 == self.target.len();
+        if !at_boundary && !last {
+            return false;
+        }
+        if last && !at_boundary && !correct {
+            return true;
+        }
+        let start = self.target[..i]
+            .iter()
+            .rposition(|c| c.is_whitespace())
+            .map_or(0, |p| p + 1);
+        (start..i).any(|j| self.typed[j] != Some(self.target[j]))
     }
 
     fn toggle_pause(&mut self, t_ns: u64) {
@@ -290,15 +350,56 @@ impl LessonRun {
                 || now_ns.saturating_sub(self.finished_at_ns) >= RELEASE_GRACE_NS)
     }
 
+    /// Typing time so far: from the first keystroke to now (or to the last
+    /// keystroke once finished), paused time excluded. This is the clock the
+    /// HUD shows and the time WPM is based on (decision D27).
+    pub fn elapsed_ns(&self, now_ns: u64) -> u64 {
+        let Some(first) = self.first_key_active else {
+            return 0;
+        };
+        let end = match self.state {
+            RunState::Finished => self.last_key_active,
+            _ => self.active_ns(now_ns),
+        };
+        end.saturating_sub(first)
+    }
+
+    /// Characters currently correct.
+    pub fn correct_chars(&self) -> usize {
+        (0..self.cursor)
+            .filter(|&i| self.char_state(i) == CharState::Correct)
+            .count()
+    }
+
+    /// Net WPM: correct characters / 5 per minute of `elapsed_ns`.
     pub fn live_wpm(&self, now_ns: u64) -> f64 {
-        let active = self.active_ns(now_ns);
-        if active == 0 {
+        let t = self.elapsed_ns(now_ns);
+        if t == 0 {
             return 0.0;
         }
-        let correct = (0..self.cursor)
-            .filter(|&i| self.char_state(i) == CharState::Correct)
-            .count();
-        (correct as f64 / 5.0) / (active as f64 / 60e9)
+        (self.correct_chars() as f64 / 5.0) / (t as f64 / 60e9)
+    }
+
+    /// (words fully typed, words in the lesson). A word counts as typed once
+    /// the caret has passed its last character.
+    pub fn word_progress(&self) -> (usize, usize) {
+        let (mut done, mut total) = (0, 0);
+        let mut in_word = false;
+        for (i, c) in self.target.iter().enumerate() {
+            if c.is_whitespace() {
+                in_word = false;
+                continue;
+            }
+            if !in_word {
+                total += 1;
+                in_word = true;
+            }
+            let ends_word = self.target.get(i + 1).is_none_or(|n| n.is_whitespace());
+            if ends_word && i < self.cursor {
+                done += 1;
+            }
+        }
+        (done, total)
     }
 
     pub fn summary(&self) -> RunSummary {
@@ -309,7 +410,7 @@ impl LessonRun {
         } else {
             1.0 - errors as f64 / attempted.len() as f64
         };
-        let active_ns = self.active_ns(self.last_t_ns);
+        let active_ns = self.elapsed_ns(self.last_t_ns);
         RunSummary {
             chars: self.target.len(),
             active_ns,
@@ -337,9 +438,9 @@ mod tests {
     }
 
     impl Driver {
-        fn new(text: &str, stop: bool) -> Self {
+        fn new(text: &str, mode: impl Into<ErrorMode>) -> Self {
             Self {
-                run: LessonRun::new(text, stop),
+                run: LessonRun::new(text, mode),
                 t: 0,
             }
         }
@@ -484,9 +585,10 @@ mod tests {
         assert_eq!(markers.len(), 2);
         assert!(markers[0].is_down && !markers[1].is_down);
         let s = d.run.summary();
-        assert_eq!(s.active_ns, d.run.active_ns(d.t));
-        // Finished at the last key-down, which is 20 ms before the final key-up.
-        assert_eq!(s.active_ns, d.t - 20 * MS - paused);
+        assert_eq!(s.active_ns, d.run.elapsed_ns(d.t));
+        // Typing time: from the first key-down ('a' at 50 ms) to the last
+        // ('c', 20 ms before the final key-up), minus the pause.
+        assert_eq!(s.active_ns, d.t - 20 * MS - paused - 50 * MS);
     }
 
     #[test]
@@ -539,6 +641,54 @@ mod tests {
         assert_eq!(ev.len(), 2);
         assert!(ev.iter().all(|e| e.is_pause_marker));
         assert!(d.run.has_typed());
+    }
+
+    #[test]
+    fn clock_starts_at_the_first_keystroke() {
+        let mut d = Driver::new("abc", false);
+        d.t = 3_000 * MS; // three seconds reading the text before typing
+        d.s("ab"); // a down @3050, b down @3120
+        assert_eq!(d.run.elapsed_ns(3_120 * MS), 70 * MS);
+        // Live WPM: 2 correct chars over 70 ms.
+        let expected = (2.0 / 5.0) / (0.07 / 60.0);
+        assert!((d.run.live_wpm(3_120 * MS) - expected).abs() < 1e-6);
+        d.ch('c'); // finishes @3190
+        let s = d.run.summary();
+        assert_eq!(s.active_ns, 140 * MS);
+        assert!((s.wpm - (3.0 / 5.0) / (0.14 / 60.0)).abs() < 1e-6);
+        // Time keeps counting while idle mid-lesson, not after the end.
+        assert_eq!(d.run.elapsed_ns(99_000 * MS), 140 * MS);
+    }
+
+    #[test]
+    fn word_progress_counts_finished_words() {
+        let mut d = Driver::new("to be or", false);
+        assert_eq!(d.run.word_progress(), (0, 3));
+        d.s("t");
+        assert_eq!(d.run.word_progress(), (0, 3));
+        d.s("o");
+        assert_eq!(d.run.word_progress(), (1, 3));
+        d.s(" be or");
+        assert_eq!(d.run.word_progress(), (3, 3));
+    }
+
+    #[test]
+    fn strict_word_requires_fixing_before_the_space() {
+        let mut d = Driver::new("ab cd", ErrorMode::StrictWord);
+        d.s("ax"); // the mistake itself is allowed
+        assert_eq!(d.run.cursor(), 2);
+        d.ch(' '); // but the word cannot be finished
+        assert_eq!(d.run.cursor(), 2);
+        assert!(d.run.blocked_error);
+        d.key(14, KeyKind::Backspace);
+        d.s("b cd");
+        assert_eq!(d.run.state(), RunState::Finished);
+        // The last word is checked too.
+        let mut d = Driver::new("ab", ErrorMode::StrictWord);
+        d.s("ax");
+        assert_eq!(d.run.state(), RunState::Running);
+        d.s("b");
+        assert_eq!(d.run.state(), RunState::Finished);
     }
 
     #[test]

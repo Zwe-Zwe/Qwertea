@@ -1,0 +1,286 @@
+{
+ "text": "the cat",
+ "events": [
+  {
+   "seq": 0,
+   "t_ns": 1000000000,
+   "t_kernel_ns": null,
+   "scancode": 20,
+   "is_down": true,
+   "produced_char": "t",
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 0
+  },
+  {
+   "seq": 1,
+   "t_ns": 1060000000,
+   "t_kernel_ns": null,
+   "scancode": 20,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 1
+  },
+  {
+   "seq": 2,
+   "t_ns": 1200000000,
+   "t_kernel_ns": null,
+   "scancode": 35,
+   "is_down": true,
+   "produced_char": "h",
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 1
+  },
+  {
+   "seq": 3,
+   "t_ns": 1260000000,
+   "t_kernel_ns": null,
+   "scancode": 35,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 2
+  },
+  {
+   "seq": 4,
+   "t_ns": 1400000000,
+   "t_kernel_ns": null,
+   "scancode": 45,
+   "is_down": true,
+   "produced_char": "x",
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 2
+  },
+  {
+   "seq": 5,
+   "t_ns": 1460000000,
+   "t_kernel_ns": null,
+   "scancode": 45,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 3
+  },
+  {
+   "seq": 6,
+   "t_ns": 1600000000,
+   "t_kernel_ns": null,
+   "scancode": 14,
+   "is_down": true,
+   "produced_char": null,
+   "is_backspace": true,
+   "is_pause_marker": false,
+   "target_idx": 3
+  },
+  {
+   "seq": 7,
+   "t_ns": 1660000000,
+   "t_kernel_ns": null,
+   "scancode": 14,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 2
+  },
+  {
+   "seq": 8,
+   "t_ns": 1800000000,
+   "t_kernel_ns": null,
+   "scancode": 18,
+   "is_down": true,
+   "produced_char": "e",
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 2
+  },
+  {
+   "seq": 9,
+   "t_ns": 1860000000,
+   "t_kernel_ns": null,
+   "scancode": 18,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 3
+  },
+  {
+   "seq": 10,
+   "t_ns": 2000000000,
+   "t_kernel_ns": null,
+   "scancode": 57,
+   "is_down": true,
+   "produced_char": " ",
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 3
+  },
+  {
+   "seq": 11,
+   "t_ns": 2060000000,
+   "t_kernel_ns": null,
+   "scancode": 57,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 4
+  },
+  {
+   "seq": 12,
+   "t_ns": 2200000000,
+   "t_kernel_ns": null,
+   "scancode": 46,
+   "is_down": true,
+   "produced_char": "c",
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 4
+  },
+  {
+   "seq": 13,
+   "t_ns": 2260000000,
+   "t_kernel_ns": null,
+   "scancode": 46,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 5
+  },
+  {
+   "seq": 14,
+   "t_ns": 2300000000,
+   "t_kernel_ns": null,
+   "scancode": 1,
+   "is_down": true,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 5
+  },
+  {
+   "seq": 15,
+   "t_ns": 2300000000,
+   "t_kernel_ns": null,
+   "scancode": 0,
+   "is_down": true,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": true,
+   "target_idx": 5
+  },
+  {
+   "seq": 16,
+   "t_ns": 2360000000,
+   "t_kernel_ns": null,
+   "scancode": 1,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 5
+  },
+  {
+   "seq": 17,
+   "t_ns": 7300000000,
+   "t_kernel_ns": null,
+   "scancode": 1,
+   "is_down": true,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 5
+  },
+  {
+   "seq": 18,
+   "t_ns": 7300000000,
+   "t_kernel_ns": null,
+   "scancode": 0,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": true,
+   "target_idx": 5
+  },
+  {
+   "seq": 19,
+   "t_ns": 7360000000,
+   "t_kernel_ns": null,
+   "scancode": 1,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 5
+  },
+  {
+   "seq": 20,
+   "t_ns": 7400000000,
+   "t_kernel_ns": null,
+   "scancode": 30,
+   "is_down": true,
+   "produced_char": "a",
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 5
+  },
+  {
+   "seq": 21,
+   "t_ns": 7460000000,
+   "t_kernel_ns": null,
+   "scancode": 30,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 6
+  },
+  {
+   "seq": 22,
+   "t_ns": 7600000000,
+   "t_kernel_ns": null,
+   "scancode": 20,
+   "is_down": true,
+   "produced_char": "t",
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 6
+  },
+  {
+   "seq": 23,
+   "t_ns": 7660000000,
+   "t_kernel_ns": null,
+   "scancode": 20,
+   "is_down": false,
+   "produced_char": null,
+   "is_backspace": false,
+   "is_pause_marker": false,
+   "target_idx": 7
+  }
+ ],
+ "expected": {
+  "seconds": 1.6,
+  "wpm": 52.5,
+  "raw_wpm": 60.0,
+  "accuracy": 0.8571428571428571,
+  "correct": 7,
+  "errors": 1,
+  "keystrokes": 8,
+  "backspaces": 1,
+  "words": 2
+ },
+ "notes": [
+  "Typed: t h x <BS> e space c (pause 5 s) a t -> 'the cat', 8 text keys, 1 backspace.",
+  "Time = first keystroke (1.000 s) to last (7.600 s) minus the 5.000 s pause = 1.600 s.",
+  "WPM = 7 correct chars / 5 / (1.6/60 min) = 52.5; raw = 8 typed / 5 / (1.6/60) = 60.0.",
+  "Accuracy = first attempts correct / positions = 6/7 (position 2 was 'x')."
+ ]
+}
