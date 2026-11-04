@@ -401,79 +401,212 @@ pub fn bar_list(ui: &mut Ui, p: &Palette, rows: &[(String, f32, String)], color:
     }
 }
 
-/// Keycap heatmap: each key carries a coloured base strip, warm = weaker
-/// than your baseline, cool = stronger; the number is the weakness score.
+/// One drawn keycap, in key units (a letter key is 1 x 1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyCap {
+    pub label: String,
+    /// The character this key types, for keys that are scored.
+    pub base: Option<String>,
+    pub row: usize,
+    pub x: f32,
+    pub w: f32,
+}
+
+/// Total width of every keyboard row, in key units (standard ANSI).
+pub const BOARD_UNITS: f32 = 15.0;
+
+/// A full keyboard: the layout's typing keys in row order, framed by the
+/// usual modifier keys so every row is exactly `BOARD_UNITS` wide. If a row's
+/// keys do not fill it, the last typing key takes up the slack (e.g. the
+/// 1.5-wide backslash on ANSI keyboards).
+pub fn keyboard_caps(layout: &Layout) -> Vec<KeyCap> {
+    type Mods = &'static [(&'static str, f32)];
+    const MODS: [(Mods, Mods); 5] = [
+        (&[], &[("backspace", 2.0)]),
+        (&[("tab", 1.5)], &[]),
+        (&[("caps", 1.75)], &[("enter", 2.25)]),
+        (&[("shift", 2.25)], &[("shift", 2.75)]),
+        (
+            &[("ctrl", 1.25), ("super", 1.25), ("alt", 1.25)],
+            &[
+                ("alt", 1.25),
+                ("super", 1.25),
+                ("menu", 1.25),
+                ("ctrl", 1.25),
+            ],
+        ),
+    ];
+    let mut caps = Vec::new();
+    for (row, (pre, post)) in MODS.iter().enumerate() {
+        let mut keys: Vec<&crate::layout::Key> = layout
+            .visible_keys()
+            .filter(|k| k.row == row as i32)
+            .collect();
+        keys.sort_by(|a, b| a.x.total_cmp(&b.x));
+        let fixed: f32 = pre.iter().chain(post.iter()).map(|m| m.1).sum();
+        let n = keys.len() as f32;
+        let mut widths = vec![1.0f32; keys.len()];
+        let slack = BOARD_UNITS - fixed - n;
+        if let Some(last) = widths.last_mut() {
+            if slack > 0.0 {
+                *last += slack;
+            }
+        }
+        // If a layout has more keys than fit, shrink them evenly.
+        let total: f32 = widths.iter().sum();
+        let scale = if total > BOARD_UNITS - fixed && total > 0.0 {
+            (BOARD_UNITS - fixed) / total
+        } else {
+            1.0
+        };
+        let mut x = 0.0;
+        for (label, w) in pre.iter() {
+            caps.push(KeyCap {
+                label: (*label).into(),
+                base: None,
+                row,
+                x,
+                w: *w,
+            });
+            x += w;
+        }
+        for (k, w) in keys.iter().zip(widths) {
+            let w = w * scale;
+            let label = if k.base == " " {
+                "space".to_string()
+            } else {
+                k.base.clone()
+            };
+            caps.push(KeyCap {
+                label,
+                base: Some(k.base.clone()),
+                row,
+                x,
+                w,
+            });
+            x += w;
+        }
+        for (label, w) in post.iter() {
+            caps.push(KeyCap {
+                label: (*label).into(),
+                base: None,
+                row,
+                x,
+                w: *w,
+            });
+            x += w;
+        }
+    }
+    caps
+}
+
+/// Keycap heatmap on a full keyboard. Scored keys carry a thin base strip:
+/// warm = weaker than your own baseline, cool = stronger, more saturated =
+/// further from the baseline; the number is the weakness score. Modifier
+/// keys are drawn dimmed for orientation only.
 pub fn keyboard(ui: &mut Ui, p: &Palette, layout: &Layout, weakness: &HashMap<String, f64>) {
-    let unit = (ui.available_width() / 15.2).clamp(24.0, 54.0);
-    let size = vec2(unit * 15.2, unit * 5.4);
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    let pt = ui.painter_at(rect);
+    let avail = ui.available_width();
+    let unit = (avail / BOARD_UNITS).clamp(22.0, 56.0);
+    let gap = (unit * 0.08).max(2.0);
+    let board = vec2(unit * BOARD_UNITS, unit * 5.0);
+    let (outer, _) = ui.allocate_exact_size(vec2(avail, board.y), Sense::hover());
+    let rect = Rect::from_min_size(pos2(outer.center().x - board.x / 2.0, outer.top()), board);
+    let pt = ui.painter_at(outer);
     let lim = weakness
         .values()
         .fold(1.0f64, |m, v| m.max(v.abs()))
         .min(4.0);
-    for k in layout.visible_keys() {
-        let w = if k.base == " " { 6.0 } else { 0.9 };
-        let cx = rect.left() + k.x * unit;
-        let cy = rect.top() + (k.row as f32 + 0.5) * unit * 1.04;
-        let r = Rect::from_center_size(pos2(cx, cy), vec2(w * unit, 0.9 * unit));
+    let radius = CornerRadius::same((unit * 0.16) as u8);
+    for cap in keyboard_caps(layout) {
+        let r = Rect::from_min_size(
+            rect.min + vec2(cap.x * unit + gap / 2.0, cap.row as f32 * unit + gap / 2.0),
+            vec2(cap.w * unit - gap, unit - gap),
+        );
+        let Some(base) = &cap.base else {
+            pt.rect_filled(r, radius, p.panel_hi.gamma_multiply(0.45));
+            pt.text(
+                pos2(r.left() + unit * 0.14, r.bottom() - unit * 0.14),
+                Align2::LEFT_BOTTOM,
+                &cap.label,
+                FontId::proportional(unit * 0.2),
+                p.sub.gamma_multiply(0.7),
+            );
+            continue;
+        };
         let v = weakness
-            .get(&k.base)
+            .get(base)
             .copied()
-            .or_else(|| weakness.get(&k.base.to_uppercase()).copied());
-        pt.rect_filled(r, CornerRadius::same(8), p.panel_hi);
+            .or_else(|| weakness.get(&base.to_uppercase()).copied());
+        pt.rect_filled(r, radius, p.panel_hi);
         if let Some(v) = v {
             let t = (v / lim).clamp(-1.0, 1.0) as f32;
             let color = if t >= 0.0 { p.error } else { p.good };
-            let strip_h = 4.0 + 0.22 * unit * t.abs();
-            let strip = Rect::from_min_max(pos2(r.left(), r.bottom() - strip_h), r.max);
+            let strip = Rect::from_min_max(
+                pos2(r.left() + unit * 0.12, r.bottom() - unit * 0.12 - 3.0),
+                pos2(r.right() - unit * 0.12, r.bottom() - unit * 0.12),
+            );
             pt.rect_filled(
                 strip,
-                CornerRadius {
-                    nw: 0,
-                    ne: 0,
-                    sw: 8,
-                    se: 8,
-                },
-                color.gamma_multiply(0.35 + 0.65 * t.abs()),
+                CornerRadius::same(2),
+                color.gamma_multiply(0.3 + 0.7 * t.abs()),
             );
         }
-        pt.rect_stroke(
-            r,
-            CornerRadius::same(8),
-            Stroke::new(1.0, p.bg),
-            StrokeKind::Inside,
-        );
-        let label = if k.base == " " {
-            "space"
-        } else {
-            k.base.as_str()
-        };
         let shows_value = v.is_some_and(|v| v.abs() >= 0.5);
         pt.text(
             r.center()
                 - vec2(
                     0.0,
                     if shows_value {
-                        unit * 0.13
+                        unit * 0.12
                     } else {
                         unit * 0.04
                     },
                 ),
             Align2::CENTER_CENTER,
-            label,
-            FontId::monospace(unit * 0.32),
+            &cap.label,
+            FontId::monospace(unit * if cap.label.len() > 1 { 0.26 } else { 0.32 }),
             p.text,
         );
         if let Some(v) = v.filter(|_| shows_value) {
             pt.text(
-                r.center() + vec2(0.0, unit * 0.15),
+                r.center() + vec2(0.0, unit * 0.14),
                 Align2::CENTER_CENTER,
                 format!("{v:+.1}"),
-                FontId::proportional(unit * 0.18),
-                p.sub,
+                FontId::proportional(unit * 0.17),
+                if v > 0.0 { p.error } else { p.good },
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod keyboard_tests {
+    use super::*;
+
+    #[test]
+    fn every_row_is_full_width_and_gapless() {
+        let caps = keyboard_caps(&Layout::builtin());
+        for row in 0..5 {
+            let mut keys: Vec<&KeyCap> = caps.iter().filter(|c| c.row == row).collect();
+            keys.sort_by(|a, b| a.x.total_cmp(&b.x));
+            let mut x = 0.0;
+            for k in &keys {
+                assert!((k.x - x).abs() < 1e-4, "row {row}: gap before {}", k.label);
+                x += k.w;
+            }
+            assert!((x - BOARD_UNITS).abs() < 1e-4, "row {row} is {x} wide");
+        }
+    }
+
+    #[test]
+    fn ansi_widths() {
+        let caps = keyboard_caps(&Layout::builtin());
+        let w = |label: &str| caps.iter().find(|c| c.label == label).map(|c| c.w).unwrap();
+        assert_eq!(w("\\"), 1.5);
+        assert_eq!(w("space"), 6.25);
+        assert_eq!(w("enter"), 2.25);
+        assert_eq!(w("q"), 1.0);
+        assert_eq!(caps.iter().filter(|c| c.base.is_some()).count(), 48);
     }
 }
 

@@ -95,7 +95,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.label(eyebrow(&p, "Your keyboard"));
                 ui.label(muted(
                     &p,
-                    "Each key against your own baseline: a red base means weaker than usual, green means stronger.",
+                    "Each key against your own baseline: a red bar is weaker than your usual, green is stronger; brighter means further from it.",
                 )
                 .size(13.5));
                 ui.add_space(6.0);
