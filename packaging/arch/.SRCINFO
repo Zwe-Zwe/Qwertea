@@ -28,6 +28,6 @@ pkgbase = qwertea
 	optdepends = wayland: native Wayland window
 	optdepends = xdg-utils: open the HTML report in your browser
 	source = qwertea-1.0.1.tar.gz::https://github.com/Zwe-Zwe/Qwertea/archive/refs/tags/v1.0.1.tar.gz
-	sha256sums = SKIP
+	sha256sums = b1a97bb201fd14f0a3b84a1c00622c9dcfc819f021e56ad06647f16c7d987d58
 
 pkgname = qwertea

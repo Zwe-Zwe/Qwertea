@@ -23,7 +23,7 @@ optdepends=(
   'xdg-utils: open the HTML report in your browser'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('b1a97bb201fd14f0a3b84a1c00622c9dcfc819f021e56ad06647f16c7d987d58')
 
 _srcdir() { echo "$srcdir/Qwertea-$pkgver"; }
 
