@@ -15,8 +15,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SCHEMA_SQL: &str = include_str!("../../schema/001_init.sql");
 /// Numbered migrations applied after 001, in order.
-pub const MIGRATIONS: &[(i64, &str)] = &[(2, include_str!("../../schema/002_lesson_meta.sql"))];
-pub const SCHEMA_VERSION: i64 = 2;
+pub const MIGRATIONS: &[(i64, &str)] = &[
+    (2, include_str!("../../schema/002_lesson_meta.sql")),
+    (3, include_str!("../../schema/003_profile_settings.sql")),
+];
+pub const SCHEMA_VERSION: i64 = 3;
 pub const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub type DbResult<T> = rusqlite::Result<T>;

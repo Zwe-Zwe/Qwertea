@@ -17,7 +17,10 @@ from .paths import SCHEMA_DIR
 
 SCHEMA_FILE = SCHEMA_DIR / "001_init.sql"
 # Numbered migrations applied after 001, in order: (version, file).
-MIGRATIONS = [(2, SCHEMA_DIR / "002_lesson_meta.sql")]
+MIGRATIONS = [
+    (2, SCHEMA_DIR / "002_lesson_meta.sql"),
+    (3, SCHEMA_DIR / "003_profile_settings.sql"),
+]
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 
@@ -201,6 +204,11 @@ def load_key_events(conn: sqlite3.Connection, lesson_id: int) -> list[KeyEvent]:
         )
         for r in rows
     ]
+
+
+def profile_settings(conn: sqlite3.Connection) -> dict[str, str]:
+    """The profile's settings (written by the app), as raw strings."""
+    return {r[0]: r[1] for r in conn.execute("SELECT key, value FROM profile_settings")}
 
 
 def count_pending(conn: sqlite3.Connection) -> int:

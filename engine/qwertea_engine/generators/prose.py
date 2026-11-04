@@ -588,6 +588,40 @@ class ProseGenerator:
         return LessonSpec(phase="probe", text=text, meta=dict(PHASE_INFO["probe"]))
 
 
+def apply_content(
+    text: str, capitals: bool, punctuation: bool, numbers: bool, rng: random.Random
+) -> str:
+    """Apply the profile's content switches to an adaptive lesson text.
+
+    capitals off -> lower case; punctuation off -> symbols removed (apostrophes
+    inside words such as "don't" stay); numbers off -> digits removed,
+    numbers on -> a short number after about every twelfth word.
+    """
+    import re
+
+    t = text
+    if not capitals:
+        t = t.lower()
+    if not punctuation:
+        t = re.sub(r"[^\w\s']", " ", t)
+        t = re.sub(r"(?<![A-Za-z])'|'(?![A-Za-z])", " ", t)
+        t = t.replace("_", " ")
+    if numbers:
+        words = t.split(" ")
+        out: list[str] = []
+        for w in words:
+            out.append(w)
+            if w and rng.random() < 1 / 12:
+                k = rng.choice((1, 2, 2, 3, 4))
+                out.append(str(rng.randint(10 ** (k - 1) if k > 1 else 0, 10**k - 1)))
+        t = " ".join(out)
+    else:
+        t = re.sub(r"\d+", " ", t)
+    t = re.sub(r"[ \t]+", " ", t)
+    t = "\n".join(line.strip() for line in t.split("\n")).strip()
+    return t or text
+
+
 def _fit(tokens: list[str], budget: int) -> str:
     out: list[str] = []
     n = 0

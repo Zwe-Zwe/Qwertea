@@ -10,6 +10,7 @@ pub mod db;
 pub mod engine_proc;
 pub mod gfx;
 pub mod layout;
+pub mod profile;
 pub mod session;
 pub mod stats;
 pub mod timing;

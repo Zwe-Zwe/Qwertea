@@ -15,7 +15,7 @@ from typing import Any
 from . import db, derive
 from .corpus import Corpus
 from .generators.base import Difficulty, LessonSpec, Target
-from .generators.prose import ProseGenerator
+from .generators.prose import ProseGenerator, apply_content
 from .items import Item
 from .layouts import Layout
 from .model import baseline, bayes, level
@@ -77,6 +77,44 @@ class Settings:
             lesson_chars=(int(chars[0]), int(chars[1])),
             sittings=int(cfg.get("calibration", "sittings", 3)),
         )
+
+
+LESSON_LENGTHS: dict[str, tuple[int, int]] = {
+    "short": (90, 160),
+    "medium": (150, 300),
+    "long": (280, 460),
+}
+
+
+@dataclass(frozen=True)
+class ProfilePrefs:
+    """Lesson preferences the app stores in the profile (decision D28)."""
+
+    lesson_chars: tuple[int, int] | None = None  # None = config.toml default
+    capitals: bool = True
+    punctuation: bool = True
+    numbers: bool = False
+
+    @classmethod
+    def from_settings(cls, kv: dict[str, str]) -> ProfilePrefs:
+        def flag(key: str, default: bool) -> bool:
+            v = kv.get(key)
+            return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
+
+        length = kv.get("lesson_length", "medium")
+        chars: tuple[int, int] | None = LESSON_LENGTHS.get(length)
+        if length == "custom":
+            try:
+                n = max(40, min(2000, int(kv.get("lesson_chars", "220"))))
+                chars = (n, n)
+            except ValueError:
+                chars = None
+        elif length == "medium":
+            chars = None
+        return cls(chars, flag("capitals", True), flag("punctuation", True), flag("numbers", False))
+
+    def fingerprint(self) -> str:
+        return f"{self.lesson_chars}|{int(self.capitals)}{int(self.punctuation)}{int(self.numbers)}"
 
 
 @dataclass
@@ -266,8 +304,15 @@ class Engine:
 
     # ------------------------------------------------------------------ lessons
 
+    def prefs(self) -> ProfilePrefs:
+        try:
+            return ProfilePrefs.from_settings(db.profile_settings(self.conn))
+        except sqlite3.OperationalError:  # database from before migration 3
+            return ProfilePrefs()
+
     def difficulty(self, result: ModelResult) -> Difficulty:
-        return level.difficulty(result.level, self.s.acc_band, self.s.lesson_chars)
+        chars = self.prefs().lesson_chars or self.s.lesson_chars
+        return level.difficulty(result.level, self.s.acc_band, chars)
 
     def build_lesson(
         self,
@@ -319,7 +364,19 @@ class Engine:
             diff.capitals,
             diff.punctuation,
         )
+        prefs = self.prefs()
+        diff = Difficulty(
+            diff.length,
+            diff.max_word_len,
+            diff.drill_share,
+            diff.capitals and prefs.capitals,
+            diff.punctuation and prefs.punctuation,
+        )
         spec = self.gen.generate(targets, diff.length, diff)
+        spec.text = apply_content(
+            spec.text, prefs.capitals, prefs.punctuation, prefs.numbers, self.rng
+        )
+        spec.meta["settings"] = prefs.fingerprint()
         spec.meta["difficulty"] = {
             "length": diff.length,
             "max_word_len": diff.max_word_len,
@@ -345,6 +402,7 @@ class Engine:
                 "AND COALESCE(model_snapshot_id, 0) < ?",
                 (ADAPTIVE_GEN, snapshot_id),
             ).rowcount
+            removed += self._delete_other_settings()
             pending = db.count_pending(self.conn)
             queued = 0
             probe_pending = self.conn.execute(
@@ -376,6 +434,31 @@ class Engine:
                 queued += 1
         return queued, removed
 
+    def _other_settings_ids(self) -> list[int]:
+        """Pending adaptive lessons brewed under different profile settings."""
+        fp = self.prefs().fingerprint()
+        ids = []
+        for r in self.conn.execute(
+            "SELECT id, meta_json FROM lessons WHERE status='pending' AND generator=?",
+            (ADAPTIVE_GEN,),
+        ):
+            try:
+                meta = json.loads(r["meta_json"] or "{}")
+            except ValueError:
+                meta = {}
+            if meta.get("settings") != fp:
+                ids.append(int(r["id"]))
+        return ids
+
+    def _pending_other_settings(self) -> int:
+        return len(self._other_settings_ids())
+
+    def _delete_other_settings(self) -> int:
+        ids = self._other_settings_ids()
+        for lid in ids:
+            self.conn.execute("DELETE FROM lessons WHERE id=? AND status='pending'", (lid,))
+        return len(ids)
+
     # ------------------------------------------------------------------ main entry
 
     def run_once(self, *, force_refit: bool = False) -> RunSummary:
@@ -387,8 +470,8 @@ class Engine:
             derive.derive_and_store(self.conn, lid, self.layout)
         out.derived = len(new)
         snap = self._latest_snapshot()
-        needs_queue = (
-            not self.calibration_pending() and db.count_pending(self.conn) < self.s.min_queue
+        needs_queue = not self.calibration_pending() and (
+            db.count_pending(self.conn) < self.s.min_queue or self._pending_other_settings() > 0
         )
         if not (new or force_refit or snap is None or needs_queue):
             return out

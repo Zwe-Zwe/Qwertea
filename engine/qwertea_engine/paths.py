@@ -109,6 +109,10 @@ class Config:
 
     @property
     def db_path(self) -> Path:
+        # The app runs one engine per profile and names that profile's database here.
+        override = os.environ.get("QWERTEA_DB")
+        if override:
+            return Path(override)
         p = Path(os.path.expanduser(str(self.get("general", "db_path", "data/qwertea.db"))))
         return p if p.is_absolute() else self.root / p
 
