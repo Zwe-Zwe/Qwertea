@@ -31,6 +31,8 @@ pub struct LessonMeta {
     pub sittings: Option<i64>,
     pub phase_no: Option<i64>,
     pub phases: Option<i64>,
+    /// Calibration: the phases of this sitting, in order.
+    pub phase_order: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -502,6 +504,34 @@ pub fn item_stats(
         })
     })?;
     rows.collect()
+}
+
+/// One item's statistics, if the engine has any.
+pub fn item_stat(
+    conn: &Connection,
+    mode: &str,
+    kind: &str,
+    item: &str,
+) -> DbResult<Option<ItemStat>> {
+    conn.query_row(
+        "SELECT item_kind, item, n, err_alpha, err_beta, lat_median_log, COALESCE(weakness, 0), is_holdout
+         FROM item_stats WHERE mode=?1 AND item_kind=?2 AND item=?3",
+        params![mode, kind, item],
+        |r| {
+            let a: f64 = r.get(3)?;
+            let b: f64 = r.get(4)?;
+            Ok(ItemStat {
+                kind: r.get(0)?,
+                item: r.get(1)?,
+                n: r.get(2)?,
+                p_error: a / (a + b),
+                latency_ms: r.get::<_, Option<f64>>(5)?.map(f64::exp),
+                weakness: r.get(6)?,
+                is_holdout: r.get::<_, i64>(7)? != 0,
+            })
+        },
+    )
+    .optional()
 }
 
 pub fn key_weakness(conn: &Connection, mode: &str) -> DbResult<HashMap<String, f64>> {

@@ -3,6 +3,44 @@
 All notable changes to Qwertea are listed here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-11-04
+
+### Changed
+- A new visual identity of Qwertea's own, replacing a look that was too close
+  to other typing sites:
+  - tea themes: Sencha (default), Chai, Earl Grey and Oolong; 1.0.0 theme
+    names map to them automatically;
+  - Atkinson Hyperlegible type (SIL OFL);
+  - a left sidebar with icons;
+  - a steaming-cup app icon.
+- Typing screen: the lesson sits on a sheet with a progress edge and an
+  underline caret. The lesson's training targets are tinted in the text
+  still to come. A labelled stat strip sits under the sheet.
+- Lesson notes replace the results screen:
+  - a verdict compared with your own recent lessons and personal best;
+  - a per-word rhythm strip;
+  - per-target results;
+  - details.
+- Practice home: "Up next" lists each training target with the model's
+  current error rate. A "your level" card shows a sparkline, and a step
+  tracker shows calibration progress.
+- Progress: trend area charts, a keycap heatmap and ranked weak-spot bars.
+- Settings: theme preview cards, and an explanation for each option.
+- The HTML report uses the new palette.
+- The keyboard heatmap is drawn as a full keyboard. Every row has the same
+  width (ANSI key sizes), modifier keys are dimmed, and each scored key has a
+  thin bar showing how far it is from your baseline.
+- Responsive layout. Pages share one centred content column up to 1560 px, so
+  maximised and full-screen windows no longer leave an empty band. Wide
+  windows place cards side by side, and side-by-side cards share one height.
+- Practice home adds "Recent lessons" and "Focus areas" cards.
+
+### Fixed
+- Weak-spot lists: measured label and value widths, so text no longer runs
+  into the neighbouring column.
+- Spacing between buttons and captions on Lesson notes, Progress and
+  Settings; the rhythm-strip legend no longer runs together.
+
 ## [1.0.0] - 2026-11-03
 
 First public release.

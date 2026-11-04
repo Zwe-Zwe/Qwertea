@@ -5,7 +5,7 @@ db_path = "data/qwertea.db"
 
 [client]
 font_size = 28
-theme = "dark"
+theme = "sencha"                # sencha | chai | earlgrey | oolong
 stop_on_error = false
 present_mode = "mailbox"        # mailbox | immediate | fifo
 timestamp_source = "winit"      # winit | evdev

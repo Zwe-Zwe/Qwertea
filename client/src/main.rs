@@ -26,28 +26,31 @@ struct Runner {
     next_repaint: Option<Instant>,
 }
 
-/// A 64×64 icon drawn in code: an amber rounded square with a dark "q" ring.
+/// A 64×64 icon drawn in code: a jade tile with an ink "q" (a cup and its
+/// handle) and a wisp of steam; the same mark as packaging/qwertea.svg.
 fn icon() -> Option<Icon> {
     const N: u32 = 64;
     let mut rgba = Vec::with_capacity((N * N * 4) as usize);
     for y in 0..N {
         for x in 0..N {
             let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-            // Rounded square mask.
             let r = 14.0;
             let cx = fx.clamp(r, N as f32 - r);
             let cy = fy.clamp(r, N as f32 - r);
             let inside = (fx - cx).hypot(fy - cy) <= r;
-            // "q": a ring plus a stem on the right.
-            let d = (fx - 30.0).hypot(fy - 28.0);
-            let ring = (11.0..=17.0).contains(&d);
-            let stem = (41.0..=47.0).contains(&fx) && (22.0..=54.0).contains(&fy);
+            let d = (fx - 29.0).hypot(fy - 34.0);
+            let ring = (8.7..=14.3).contains(&d);
+            let stem = (38.0..=43.5).contains(&fx) && (23.0..=54.0).contains(&fy);
+            // Steam: two small sine wisps above the cup.
+            let t = (19.0 - fy) / 12.0;
+            let wisp = |x0: f32| (fx - (x0 + 1.6 * (t * std::f32::consts::TAU).sin())).abs() <= 1.2;
+            let steam = (0.0..=1.0).contains(&t) && (wisp(24.5) || wisp(32.0));
             let px = if !inside {
                 [0, 0, 0, 0]
-            } else if ring || stem {
-                [0x2b, 0x2d, 0x31, 255]
+            } else if ring || stem || steam {
+                [0x14, 0x1c, 0x18, 255]
             } else {
-                [0xe2, 0xb7, 0x14, 255]
+                [0x8e, 0xd1, 0xa5, 255]
             };
             rgba.extend_from_slice(&px);
         }

@@ -1,12 +1,57 @@
-//! Home: next lesson, calibration progress, quick stats. Also the phase intro
-//! and sitting-complete screens of the calibration flow.
+//! Practice home: what the next lesson trains and why, your level at a
+//! glance, and calibration progress. Also the phase intro and the
+//! sitting-complete screens of the calibration flow.
 
-use super::widgets::{card, chip, muted, primary_button, stat};
+use super::widgets::{
+    card, card_h, eyebrow, meter, metric, muted, primary_button, quiet_button, sparkline,
+    step_tracker, strong, target_chip, Step,
+};
 use crate::app::{App, Screen};
-use egui::{Align, Key, Layout, RichText, Ui};
+use std::cell::Cell;
 
-fn enter_pressed(ui: &Ui) -> bool {
-    ui.input(|i| i.key_pressed(Key::Enter) || i.key_pressed(Key::Space))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NextAction {
+    Start,
+    Recheck,
+}
+use crate::db::PendingLesson;
+use egui::{vec2, Key, RichText, Ui};
+
+fn start_pressed(ui: &Ui) -> bool {
+    ui.input(|i| i.key_pressed(Key::Enter))
+}
+
+fn phase_label(phase: &str) -> &str {
+    match phase {
+        "warmup" => "warm-up",
+        "natural" => "prose",
+        "coverage" => "coverage",
+        "pseudo" => "rare pairs",
+        "special" => "symbols",
+        "probes" => "probes",
+        "retest" => "retest",
+        other => other,
+    }
+}
+
+/// The phases of the lesson's calibration sitting, with progress.
+fn sitting_steps(l: &PendingLesson) -> Vec<(String, Step)> {
+    let Some(order) = &l.meta.phase_order else {
+        return vec![];
+    };
+    let cur = l.meta.phase_no.unwrap_or(1) as usize;
+    order
+        .iter()
+        .enumerate()
+        .map(|(i, ph)| {
+            let st = match (i + 1).cmp(&cur) {
+                std::cmp::Ordering::Less => Step::Done,
+                std::cmp::Ordering::Equal => Step::Current,
+                std::cmp::Ordering::Greater => Step::Todo,
+            };
+            (phase_label(ph).to_string(), st)
+        })
+        .collect()
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
@@ -15,266 +60,431 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         ui.label(RichText::new(err).color(p.error));
         return;
     }
-    let width = ui.available_width().min(860.0);
-    ui.vertical_centered(|ui| {
-        ui.set_max_width(width);
-        ui.add_space(12.0);
-
-        // Calibration progress.
-        if let Some(c) = app.calib.clone().filter(|c| !c.is_complete()) {
-            card(ui, &p, |ui| {
-                ui.set_width(width - 32.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Calibration").size(19.0).color(p.text));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(muted(&p, format!("{:.0}% complete", 100.0 * c.fraction())));
+    egui::ScrollArea::vertical()
+        .id_salt("home_scroll")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            super::widgets::page(ui, super::PAGE_WIDTH, |ui| {
+            let full = ui.available_width();
+            ui.label(eyebrow(&p, "Practice"));
+            ui.label(strong(greeting(app), 30.0).color(p.text));
+            ui.add_space(14.0);
+            let gap = 16.0;
+            let action: Cell<Option<NextAction>> = Cell::new(None);
+            if full >= 760.0 {
+                super::widgets::split(
+                    ui,
+                    "home_top",
+                    full,
+                    0.6,
+                    gap,
+                    |ui, w, h| next_card(app, ui, w, h, &action),
+                    |ui, w, h| level_card(app, ui, w, h),
+                );
+            } else {
+                next_card(app, ui, full, 0.0, &action);
+                ui.add_space(gap);
+                level_card(app, ui, full, 0.0);
+            }
+            match action.take() {
+                Some(NextAction::Start) => app.start_next(),
+                Some(NextAction::Recheck) => app.refresh_queue(),
+                None => {}
+            }
+            ui.add_space(gap);
+            if let Some(c) = app.calib.clone().filter(|c| !c.is_complete()) {
+                card(ui, &p, |ui| {
+                    ui.set_width(full - 40.0);
+                    ui.horizontal(|ui| {
+                        ui.label(eyebrow(
+                            &p,
+                            &format!("Calibration · sitting {} of {}", c.sitting, c.sittings),
+                        ));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(muted(&p, format!("{:.0}% of all sittings", 100.0 * c.fraction())));
+                        });
                     });
-                });
-                ui.add(
-                    egui::ProgressBar::new(c.fraction())
-                        .desired_width(ui.available_width())
-                        .fill(p.accent)
-                        .desired_height(6.0),
-                );
-                ui.label(muted(
-                    &p,
-                    format!(
-                        "Sitting {} of {} · Phase {} of {} · ~{:.0} min left in this sitting",
-                        c.sitting,
-                        c.sittings,
-                        c.phase_no,
-                        c.phases,
-                        app.minutes_left(c.chars_left_sitting).ceil()
-                    ),
-                ));
-                ui.label(
-                    RichText::new(
-                        "A one-off set of sittings that samples every key, letter pair and symbol, \
-                         so your lessons can be built around you. Stop between phases at any time; \
-                         progress is kept.",
-                    )
-                    .size(13.0)
-                    .color(p.sub),
-                );
-                ui.horizontal(|ui| {
+                    ui.add_space(6.0);
+                    if let Some(l) = app.next.as_ref().filter(|l| l.is_calibration()) {
+                        step_tracker(ui, &p, &sitting_steps(l));
+                    }
+                    meter(ui, &p, c.fraction(), p.accent, full - 40.0, 6.0);
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(format!(
+                            "About {:.0} min left in this sitting. Calibration samples every key, letter pair and \
+                             symbol once, so your lessons can be built around you. Stop between phases any time.",
+                            app.minutes_left(c.chars_left_sitting).ceil()
+                        ))
+                        .size(13.5)
+                        .color(p.sub),
+                    );
                     if app.confirm_skip_calibration {
-                        ui.label(RichText::new("Skip the rest of calibration?").color(p.text));
-                        if ui.button("Yes, skip").clicked() {
-                            app.skip_calibration();
-                            app.confirm_skip_calibration = false;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            app.confirm_skip_calibration = false;
-                        }
-                    } else if ui
-                        .add(egui::Button::new(muted(&p, "skip calibration")).frame(false))
-                        .on_hover_text("Start adaptive lessons now from the data collected so far")
-                        .clicked()
-                    {
+                        ui.horizontal(|ui| {
+                            ui.label("Skip the rest and start adaptive lessons now?");
+                            if ui.button("Skip calibration").clicked() {
+                                app.skip_calibration();
+                                app.confirm_skip_calibration = false;
+                            }
+                            if ui.button("Keep going").clicked() {
+                                app.confirm_skip_calibration = false;
+                            }
+                        });
+                    } else if quiet_button(ui, &p, "skip calibration").clicked() {
                         app.confirm_skip_calibration = true;
                     }
                 });
-            });
-            ui.add_space(14.0);
-        }
-
-        // Next lesson.
-        card(ui, &p, |ui| {
-            ui.set_width(width - 32.0);
-            match app.next.clone() {
-                Some(l) => {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Next lesson").size(13.0).color(p.sub));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let mins = app.minutes_left(l.text.chars().count() as i64);
-                            ui.label(muted(
-                                &p,
-                                format!(
-                                    "{} characters · ~{}",
-                                    l.text.chars().count(),
-                                    super::clock(mins * 60.0)
-                                ),
-                            ));
-                        });
-                    });
-                    ui.label(RichText::new(l.title()).size(24.0).color(p.text));
-                    if let Some(instr) = &l.meta.instruction {
-                        ui.label(muted(&p, instr));
-                    }
-                    let targets = l.targets();
-                    if !targets.is_empty() {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(muted(&p, "focus"));
-                            for t in targets.iter().take(6) {
-                                chip(ui, &p, &t.item.replace(' ', "·"));
-                            }
-                        });
-                    }
-                    ui.add_space(10.0);
-                    ui.horizontal(|ui| {
-                        if primary_button(ui, &p, "Start").clicked() || enter_pressed(ui) {
-                            app.start_next();
-                        }
-                    });
-                }
-                None => {
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Spinner::new().color(p.accent));
-                        ui.label(RichText::new("Engine is preparing your next lesson…").size(19.0));
-                    });
-                    if !app.engine.status.is_ok() {
-                        ui.label(
-                            RichText::new(app.engine.status.label())
-                                .color(p.error)
-                                .size(13.0),
-                        );
-                        ui.label(muted(
-                            &p,
-                            format!("Engine log: {}", app.engine.log_path().display()),
-                        ));
-                    }
-                    if ui.button("Check again").clicked() {
-                        app.refresh_queue();
-                    }
+                ui.add_space(gap);
+            }
+            if !app.history.lessons.is_empty() {
+                if full >= 900.0 {
+                    super::widgets::split(
+                        ui,
+                        "home_bottom",
+                        full,
+                        0.5,
+                        gap,
+                        |ui, w, h| recent_card(app, ui, w, h),
+                        |ui, w, h| focus_card(app, ui, w, h),
+                    );
+                } else {
+                    recent_card(app, ui, full, 0.0);
+                    ui.add_space(gap);
+                    focus_card(app, ui, full, 0.0);
                 }
             }
         });
-        ui.add_space(14.0);
-
-        // Overview.
-        card(ui, &p, |ui| {
-            ui.set_width(width - 32.0);
-            ui.columns(4, |cols| {
-                let recent = app.history.recent(10);
-                let avg = |f: fn(&(usize, f64, f64, f64, String)) -> f64| {
-                    (!recent.is_empty())
-                        .then(|| recent.iter().map(f).sum::<f64>() / recent.len() as f64)
-                };
-                let fmt =
-                    |v: Option<f64>, s: &str| v.map_or("–".to_string(), |v| format!("{v:.0}{s}"));
-                stat(
-                    &mut cols[0],
-                    &p,
-                    &fmt(avg(|l| l.1), ""),
-                    "avg wpm (last 10)",
-                    30.0,
-                );
-                stat(
-                    &mut cols[1],
-                    &p,
-                    &fmt(avg(|l| 100.0 * l.2), "%"),
-                    "avg accuracy",
-                    30.0,
-                );
-                stat(
-                    &mut cols[2],
-                    &p,
-                    &fmt(app.history.best_wpm(), ""),
-                    "best wpm",
-                    30.0,
-                );
-                stat(
-                    &mut cols[3],
-                    &p,
-                    &app.history.lessons.len().to_string(),
-                    "lessons",
-                    30.0,
-                );
-            });
-            if let Some(l) = app.history.lessons.last() {
-                ui.label(muted(
-                    &p,
-                    format!("last lesson: {:.0} wpm · {:.1}% accuracy", l.1, 100.0 * l.2),
-                ));
-            }
         });
-        ui.add_space(18.0);
-        ui.label(
-            RichText::new("enter — start   ·   esc — pause while typing")
-                .size(12.0)
-                .color(p.sub),
-        );
-    });
 }
 
-/// Calibration phase introduction ("Sitting 1 of 3 · Phase 4 of 7").
+/// The last few lessons, newest first.
+fn recent_card(app: &App, ui: &mut Ui, w: f32, min_h: f32) -> f32 {
+    let p = app.palette;
+    card_h(ui, &p, min_h, |ui| {
+        ui.set_width(w - 40.0);
+        ui.label(eyebrow(&p, "Recent lessons"));
+        ui.add_space(2.0);
+        let rows: Vec<_> = app.history.lessons.iter().rev().take(6).collect();
+        egui::Grid::new("recent")
+            .num_columns(4)
+            .spacing([24.0, 8.0])
+            .show(ui, |ui| {
+                for h in ["#", "lesson", "speed", "accuracy"] {
+                    ui.label(eyebrow(&p, h));
+                }
+                ui.end_row();
+                for (n, wpm, acc, _secs, phase) in rows {
+                    ui.label(muted(&p, n.to_string()));
+                    ui.label(phase_name(phase));
+                    ui.label(RichText::new(format!("{wpm:.0} wpm")).color(p.text));
+                    let c = if *acc >= 0.96 {
+                        p.good
+                    } else if *acc >= 0.92 {
+                        p.text
+                    } else {
+                        p.error
+                    };
+                    ui.label(RichText::new(format!("{:.1}%", 100.0 * acc)).color(c));
+                    ui.end_row();
+                }
+            });
+    })
+    .1
+}
+
+/// The engine's current top weak letter pairs.
+fn focus_card(app: &App, ui: &mut Ui, w: f32, min_h: f32) -> f32 {
+    let p = app.palette;
+    card_h(ui, &p, min_h, |ui| {
+        ui.set_width(w - 40.0);
+        ui.label(eyebrow(&p, "Focus areas"));
+        ui.label(
+            muted(
+                &p,
+                "Letter pairs the engine is steering your lessons toward.",
+            )
+            .size(13.0),
+        );
+        ui.add_space(4.0);
+        let items: Vec<_> = app
+            .weak_bigrams
+            .iter()
+            .filter(|i| i.weakness > 0.0)
+            .take(6)
+            .collect();
+        let max = items.iter().map(|i| i.weakness).fold(0.1, f64::max);
+        let rows: Vec<(String, f32, String)> = items
+            .iter()
+            .map(|i| {
+                (
+                    i.item.clone(),
+                    (i.weakness / max) as f32,
+                    format!("{:.0}% slips", 100.0 * i.p_error),
+                )
+            })
+            .collect();
+        super::widgets::bar_list(ui, &p, &rows, p.accent2);
+    })
+    .1
+}
+
+fn phase_name(phase: &str) -> &str {
+    match phase {
+        "drill" => "focused practice",
+        "review" => "review",
+        "mixed" => "practice",
+        "probe" => "checkpoint",
+        "natural" => "calibration · prose",
+        "coverage" => "calibration · coverage",
+        "pseudo" => "calibration · rare pairs",
+        "special" => "calibration · symbols",
+        "speed" => "speed probe",
+        "accuracy" => "accuracy probe",
+        "retest" => "retest",
+        other => other,
+    }
+}
+
+fn greeting(app: &App) -> String {
+    match (&app.next, app.calib.as_ref().map(|c| c.is_complete())) {
+        (None, _) => "Brewing your next lesson".into(),
+        (Some(l), _) if l.is_calibration() => "Let's get to know your typing".into(),
+        (Some(_), _) if app.history.lessons.is_empty() => "Ready when you are".into(),
+        _ => "Your next lesson is ready".into(),
+    }
+}
+
+fn next_card(
+    app: &App,
+    ui: &mut Ui,
+    width: f32,
+    min_h: f32,
+    action: &Cell<Option<NextAction>>,
+) -> f32 {
+    let p = app.palette;
+    card_h(ui, &p, min_h, |ui| {
+        ui.set_width(width - 40.0);
+        let Some(l) = app.next.clone() else {
+            ui.horizontal(|ui| {
+                ui.add(egui::Spinner::new().color(p.accent));
+                ui.label(strong("Steeping…", 22.0));
+            });
+            ui.label(muted(
+                &p,
+                "The engine is analysing your last lesson and brewing the next one.",
+            ));
+            if !app.engine.status.is_ok() {
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(app.engine.status.label())
+                        .color(p.error)
+                        .size(13.0),
+                );
+                ui.label(
+                    muted(
+                        &p,
+                        format!("Engine log: {}", app.engine.log_path().display()),
+                    )
+                    .size(12.5),
+                );
+            }
+            if ui.button("Check again").clicked() {
+                action.set(Some(NextAction::Recheck));
+            }
+            return;
+        };
+        ui.label(eyebrow(&p, "Up next"));
+        ui.label(strong(l.title(), 26.0).color(p.text));
+        if let Some(instr) = &l.meta.instruction {
+            ui.label(muted(&p, instr));
+        }
+        let targets = app.next_targets.clone();
+        if !targets.is_empty() {
+            ui.add_space(10.0);
+            ui.label(eyebrow(&p, "Training"));
+            for (t, st) in targets.iter().take(6) {
+                ui.horizontal(|ui| {
+                    ui.allocate_ui_with_layout(
+                        vec2(64.0, 30.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| target_chip(ui, &p, &t.item),
+                    );
+                    match st {
+                        Some(s) => {
+                            meter(ui, &p, (s.p_error / 0.25) as f32, p.accent2, 110.0, 6.0);
+                            let why = if t.reason == "review" {
+                                "review: you improved this".to_string()
+                            } else {
+                                let mut w = format!("{:.0}% slips", 100.0 * s.p_error);
+                                if let Some(ms) = s.latency_ms {
+                                    w.push_str(&format!(" · {ms:.0} ms"));
+                                }
+                                w
+                            };
+                            ui.label(muted(&p, why).size(13.0));
+                        }
+                        None => {
+                            ui.label(muted(&p, "new pattern").size(13.0));
+                        }
+                    }
+                });
+            }
+        }
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            if primary_button(ui, &p, "Start lesson", "Enter").clicked() || start_pressed(ui) {
+                action.set(Some(NextAction::Start));
+            }
+            let n = l.text.chars().count();
+            ui.label(muted(
+                &p,
+                format!(
+                    "{n} characters · about {}",
+                    super::clock(app.minutes_left(n as i64) * 60.0)
+                ),
+            ));
+        });
+    })
+    .1
+}
+
+fn level_card(app: &App, ui: &mut Ui, width: f32, min_h: f32) -> f32 {
+    let p = app.palette;
+    card_h(ui, &p, min_h, |ui| {
+        ui.set_width(width - 40.0);
+        ui.label(eyebrow(&p, "Your level"));
+        let recent = app.history.recent(10);
+        if recent.is_empty() {
+            ui.label(strong("–", 34.0));
+            ui.label(muted(
+                &p,
+                "Finish a few lessons and your level appears here.",
+            ));
+            return;
+        }
+        let n = recent.len() as f64;
+        let wpm = recent.iter().map(|l| l.1).sum::<f64>() / n;
+        let acc = recent.iter().map(|l| l.2).sum::<f64>() / n;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 26.0;
+            metric(ui, &p, "speed", &format!("{wpm:.0}"), "wpm", 34.0);
+            metric(
+                ui,
+                &p,
+                "accuracy",
+                &format!("{:.0}", 100.0 * acc),
+                "%",
+                34.0,
+            );
+        });
+        let series: Vec<f64> = app.history.recent(20).iter().map(|l| l.1).collect();
+        ui.add_space(4.0);
+        sparkline(ui, &p, &series, vec2(width - 40.0, 46.0), p.accent);
+        ui.label(
+            muted(
+                &p,
+                format!(
+                    "last {} lessons · best {:.0} wpm · {} total",
+                    series.len(),
+                    app.history.best_wpm().unwrap_or(0.0),
+                    app.history.lessons.len()
+                ),
+            )
+            .size(12.5),
+        );
+    })
+    .1
+}
+
+/// Calibration phase introduction.
 pub fn intro(app: &mut App, ui: &mut Ui) {
     let p = app.palette;
     let Some(l) = app.intro.clone() else {
         app.screen = Screen::Home;
         return;
     };
+    let width = ui.available_width().min(640.0);
+    ui.add_space((ui.available_height() * 0.14).max(10.0));
     ui.vertical_centered(|ui| {
-        ui.add_space(ui.available_height() * 0.18);
-        if l.is_calibration() {
-            let left = app
-                .calib
-                .as_ref()
-                .map(|c| app.minutes_left(c.chars_left_sitting).ceil())
-                .unwrap_or(0.0);
-            ui.label(muted(
-                &p,
-                format!(
-                    "Sitting {} of {} · Phase {} of {} · ~{:.0} min left",
-                    l.meta.sitting.unwrap_or(1),
-                    l.meta.sittings.unwrap_or(1),
-                    l.meta.phase_no.unwrap_or(1),
-                    l.meta.phases.unwrap_or(1),
-                    left
-                ),
-            ));
-        }
-        ui.add_space(6.0);
-        ui.label(RichText::new(l.title()).size(40.0).color(p.accent));
-        if let Some(instr) = &l.meta.instruction {
-            ui.add_space(4.0);
-            ui.label(RichText::new(instr).size(18.0).color(p.text));
-        }
-        ui.add_space(28.0);
-        if primary_button(ui, &p, "Begin").clicked() || enter_pressed(ui) {
-            app.intro = None;
-            app.begin(l);
-        }
-        ui.add_space(8.0);
-        if ui
-            .add(egui::Button::new(muted(&p, "back to menu")).frame(false))
-            .clicked()
-            || ui.input(|i| i.key_pressed(Key::Escape))
-        {
-            app.intro = None;
-            app.screen = Screen::Home;
-        }
+        ui.set_max_width(width);
+        card(ui, &p, |ui| {
+            ui.set_width(width - 40.0);
+            if l.is_calibration() {
+                ui.label(eyebrow(
+                    &p,
+                    &format!(
+                        "Calibration · sitting {} of {}",
+                        l.meta.sitting.unwrap_or(1),
+                        l.meta.sittings.unwrap_or(1)
+                    ),
+                ));
+                ui.add_space(4.0);
+                step_tracker(ui, &p, &sitting_steps(&l));
+            } else {
+                ui.label(eyebrow(&p, "Checkpoint"));
+            }
+            ui.add_space(8.0);
+            ui.label(strong(l.title(), 32.0).color(p.text));
+            if let Some(instr) = &l.meta.instruction {
+                ui.label(RichText::new(instr).size(17.0).color(p.text));
+            }
+            if let Some(c) = app.calib.as_ref().filter(|_| l.is_calibration()) {
+                ui.label(muted(
+                    &p,
+                    format!(
+                        "About {:.0} min left in this sitting.",
+                        app.minutes_left(c.chars_left_sitting).ceil()
+                    ),
+                ));
+            }
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                if primary_button(ui, &p, "Begin", "Enter").clicked() || start_pressed(ui) {
+                    app.intro = None;
+                    app.begin(l.clone());
+                }
+                if quiet_button(ui, &p, "back").clicked()
+                    || ui.input(|i| i.key_pressed(Key::Escape))
+                {
+                    app.intro = None;
+                    app.screen = Screen::Home;
+                }
+            });
+        });
     });
 }
 
 pub fn sitting_done(app: &mut App, ui: &mut Ui) {
     let p = app.palette;
+    let width = ui.available_width().min(640.0);
+    ui.add_space((ui.available_height() * 0.16).max(10.0));
     ui.vertical_centered(|ui| {
-        ui.add_space(ui.available_height() * 0.18);
-        ui.label(RichText::new("Sitting complete").size(40.0).color(p.accent));
-        ui.add_space(6.0);
-        ui.label(
-            RichText::new(
-                "Nice work. Take a break and come back later; calibration resumes where you left off.",
-            )
-            .size(17.0),
-        );
-        if let Some(c) = &app.calib {
-            ui.label(muted(
-                &p,
-                format!("Next: sitting {} of {}", c.sitting, c.sittings),
-            ));
-        }
-        ui.add_space(28.0);
-        ui.horizontal(|ui| {
-            let w = 360.0;
-            ui.add_space((ui.available_width() - w) / 2.0);
-            if primary_button(ui, &p, "Continue now").clicked() {
-                app.start_next();
+        ui.set_max_width(width);
+        card(ui, &p, |ui| {
+            ui.set_width(width - 40.0);
+            ui.label(eyebrow(&p, "Calibration"));
+            ui.label(strong("Sitting complete", 32.0).color(p.text));
+            ui.label(
+                RichText::new(
+                    "Nicely done. Step away for a while: the next sitting is more useful with fresh hands. \
+                     Calibration picks up where you left off.",
+                )
+                .size(16.0),
+            );
+            if let Some(c) = &app.calib {
+                ui.add_space(6.0);
+                meter(ui, &p, c.fraction(), p.accent, width - 40.0, 6.0);
+                ui.label(muted(&p, format!("Next: sitting {} of {}", c.sitting, c.sittings)));
             }
-            if ui.button("Back to menu").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
-                app.screen = Screen::Home;
-            }
+            ui.add_space(14.0);
+            ui.horizontal(|ui| {
+                if primary_button(ui, &p, "Continue now", "").clicked() {
+                    app.start_next();
+                }
+                if quiet_button(ui, &p, "later").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    app.screen = Screen::Home;
+                }
+            });
         });
     });
 }

@@ -1,25 +1,45 @@
-//! The typing screen: the lesson text with the caret on the next expected
-//! character, three visible lines that scroll with the caret, and a minimal
-//! HUD (time, live WPM, progress). Everything else is hidden.
+//! The typing screen: the lesson on a "sheet" with a progress edge, the
+//! current character marked by an underline caret, and the lesson's training
+//! targets tinted in the text still to come, so you can see what each lesson
+//! is for. A small labelled stat strip sits under the sheet.
 //!
 //! Keys never reach egui here; they go straight to `LessonRun` in the key
 //! handler. This function only draws (and handles the pause menu's buttons).
 
-use super::widgets::muted;
+use super::widgets::{eyebrow, muted, strong, target_chip};
 use crate::app::{App, PausedAction};
 use crate::session::{CharState, RunState};
 use egui::text::{CCursor, LayoutJob, TextFormat};
-use egui::{pos2, vec2, Align2, Color32, FontId, Rect, RichText, Stroke, Ui};
+use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Rect, RichText, Stroke, Ui};
 
 const VISIBLE_LINES: usize = 3;
 
-/// What to draw for one target character, and how many display chars it takes.
 fn display(c: char) -> &'static str {
     match c {
         '\n' => "↵\n",
         '\t' => "→   ",
         _ => "",
     }
+}
+
+/// Text positions covered by any occurrence of a target item (case-insensitive).
+fn target_mask(target: &[char], items: &[String]) -> Vec<bool> {
+    let low: Vec<char> = target.iter().map(|c| c.to_ascii_lowercase()).collect();
+    let mut mask = vec![false; target.len()];
+    for item in items {
+        let pat: Vec<char> = item.to_lowercase().chars().collect();
+        if pat.is_empty() || pat.len() > low.len() || pat.iter().all(|c| c.is_whitespace()) {
+            continue;
+        }
+        for i in 0..=low.len() - pat.len() {
+            if low[i..i + pat.len()] == pat[..] {
+                for m in &mut mask[i..i + pat.len()] {
+                    *m = true;
+                }
+            }
+        }
+    }
+    mask
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
@@ -32,50 +52,57 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let state = run.state();
     let title = a.lesson.title();
     let instruction = a.lesson.meta.instruction.clone();
+    let targets: Vec<String> = a.lesson.targets().into_iter().map(|t| t.item).collect();
     let started = run.has_typed();
+    let target = run.target();
+    let mask = target_mask(target, &targets);
 
     let full = ui.available_rect_before_wrap();
-    let width = (full.width() - 40.0)
-        .min(font_size * 0.62 * 64.0)
-        .max(200.0);
-    let left = full.center().x - width / 2.0;
+    let sheet_w = (full.width() - 32.0).min(font_size * 0.6 * 70.0).max(320.0);
+    let pad = vec2(36.0, 30.0);
+    let text_w = sheet_w - 2.0 * pad.x;
 
-    // ---------------------------------------------------------------- text layout
+    // ---------------------------------------------------------------- layout the text
     let font = FontId::monospace(font_size);
     let mut job = LayoutJob {
         wrap: egui::text::TextWrapping {
-            max_width: width,
+            max_width: text_w,
             ..Default::default()
         },
         ..Default::default()
     };
-    let target = run.target();
-    let mut disp_index = Vec::with_capacity(target.len() + 1);
-    let mut d = 0usize;
-    let fmt_for = |st: CharState, is_space: bool| -> TextFormat {
+    let fmt_for = |st: CharState, is_target: bool, is_space: bool| -> TextFormat {
         let mut f = TextFormat::simple(font.clone(), p.sub);
+        f.line_height = Some(font_size * 1.55);
         match st {
+            CharState::Pending if is_target => f.color = p.accent2,
             CharState::Pending => {}
             CharState::Correct => f.color = p.text,
             CharState::Wrong => {
                 f.color = p.error;
+                f.background = p.error_dim;
                 if is_space {
-                    f.background = p.error_dim;
+                    f.underline = Stroke::new(2.0, p.error);
                 }
-                f.underline = Stroke::new(2.0, p.error);
             }
         }
         f
     };
-    // Group consecutive characters with the same look into one section.
+    let mut disp_index = Vec::with_capacity(target.len() + 1);
+    let mut d = 0usize;
     let mut buf = String::new();
-    let mut cur: Option<(CharState, bool)> = None;
+    let mut cur: Option<(CharState, bool, bool)> = None;
     for (i, &c) in target.iter().enumerate() {
         let st = run.char_state(i);
-        let key = (st, c == ' ' && st == CharState::Wrong);
+        let key = (st, mask[i], c == ' ');
+        let key = if st == CharState::Wrong {
+            key
+        } else {
+            (key.0, key.1, false)
+        };
         if cur != Some(key) {
-            if let Some((s, sp)) = cur {
-                job.append(&buf, 0.0, fmt_for(s, sp));
+            if let Some((s, t, sp)) = cur {
+                job.append(&buf, 0.0, fmt_for(s, t, sp));
                 buf.clear();
             }
             cur = Some(key);
@@ -90,24 +117,26 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             d += shown.chars().count();
         }
     }
-    if let Some((s, sp)) = cur {
-        job.append(&buf, 0.0, fmt_for(s, sp));
+    if let Some((s, t, sp)) = cur {
+        job.append(&buf, 0.0, fmt_for(s, t, sp));
     }
     disp_index.push(d);
     let galley = ui.fonts_mut(|f| f.layout_job(job));
-    let line_h = galley
-        .rows
-        .first()
-        .map(|r| r.rect().height())
-        .unwrap_or(font_size * 1.3)
-        * 1.0;
+    let line_h = font_size * 1.55;
     let text_h = line_h * VISIBLE_LINES as f32;
-    let top = full.center().y - text_h / 2.0 - 10.0;
-    let text_rect = Rect::from_min_size(pos2(left, top), vec2(width, text_h));
 
-    // Caret position and the row it is on.
+    // Sheet rectangle, a little above centre.
+    let sheet_h = text_h + 2.0 * pad.y + 6.0;
+    let sheet = Rect::from_center_size(
+        pos2(full.center().x, full.center().y - 10.0),
+        vec2(sheet_w, sheet_h),
+    );
+    let text_rect = Rect::from_min_size(sheet.min + pad + vec2(0.0, 6.0), vec2(text_w, text_h));
+
     let cursor = run.cursor();
     let caret = galley.pos_from_cursor(CCursor::new(disp_index[cursor.min(target.len())]));
+    let caret_next =
+        galley.pos_from_cursor(CCursor::new(disp_index[(cursor + 1).min(target.len())]));
     let caret_row = galley
         .rows
         .iter()
@@ -119,119 +148,203 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .get(first_row)
         .map(|r| r.rect().min.y)
         .unwrap_or(0.0);
-    let origin = pos2(left, top - scroll);
+    let origin = text_rect.min - vec2(0.0, scroll);
 
-    // ---------------------------------------------------------------- HUD
-    let painter = ui.painter();
-    let hud_y = top - font_size * 1.4;
-    let secs = run.active_ns(now_ns) as f64 / 1e9;
-    let mut hud = format!(
-        "{}   {}/{}",
-        super::clock(if started { secs } else { 0.0 }),
-        cursor,
-        target.len()
-    );
-    if live_wpm && started && secs > 1.0 {
-        hud.push_str(&format!("   {:.0} wpm", run.live_wpm(now_ns)));
-    }
+    let painter = ui.painter().clone();
+
+    // ---------------------------------------------------------------- header above the sheet
+    let head_y = sheet.top() - 64.0;
     painter.text(
-        pos2(left, hud_y),
-        Align2::LEFT_CENTER,
-        hud,
-        FontId::monospace(font_size * 0.7),
-        p.accent,
+        pos2(sheet.left() + 4.0, head_y),
+        Align2::LEFT_TOP,
+        title.to_uppercase(),
+        FontId::proportional(12.0),
+        p.sub,
     );
-    if !started && state == RunState::Running {
-        painter.text(
-            pos2(full.center().x, top - font_size * 3.2),
-            Align2::CENTER_CENTER,
-            &title,
-            FontId::proportional(20.0),
-            p.text,
-        );
+    if !started {
         if let Some(instr) = &instruction {
             painter.text(
-                pos2(full.center().x, top - font_size * 3.2 + 26.0),
-                Align2::CENTER_CENTER,
+                pos2(sheet.left() + 4.0, head_y + 20.0),
+                Align2::LEFT_TOP,
                 instr,
-                FontId::proportional(14.0),
-                p.sub,
+                FontId::proportional(15.0),
+                p.text,
             );
         }
     }
-
-    // ---------------------------------------------------------------- text + caret
-    let clip = text_rect.expand2(vec2(4.0, 2.0));
-    let text_painter = ui.painter_at(clip);
-    let dim = if state == RunState::Paused { 0.25 } else { 1.0 };
-    text_painter.galley(origin, galley.clone(), Color32::WHITE);
-    if dim < 1.0 {
-        text_painter.rect_filled(clip, 0.0, p.bg.gamma_multiply(0.85));
+    painter.text(
+        pos2(sheet.right() - 4.0, head_y),
+        Align2::RIGHT_TOP,
+        "ESC  PAUSE",
+        FontId::proportional(12.0),
+        p.sub,
+    );
+    if !targets.is_empty() {
+        let mut chip_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(Rect::from_min_size(
+                    pos2(
+                        sheet.left() + 4.0,
+                        head_y + if started { 22.0 } else { 44.0 },
+                    ),
+                    vec2(sheet_w, 26.0),
+                ))
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        chip_ui.label(RichText::new("training").size(13.0).color(p.sub));
+        for t in targets.iter().take(5) {
+            target_chip(&mut chip_ui, &p, t);
+        }
     }
+
+    // ---------------------------------------------------------------- the sheet
+    painter.rect_filled(sheet, CornerRadius::same(20), p.panel);
+    let progress = if target.is_empty() {
+        0.0
+    } else {
+        cursor as f32 / target.len() as f32
+    };
+    let edge = Rect::from_min_size(sheet.min + vec2(pad.x, 16.0), vec2(text_w, 3.0));
+    painter.rect_filled(edge, CornerRadius::same(2), p.panel_hi);
+    let mut done = edge;
+    done.set_width(edge.width() * progress);
+    painter.rect_filled(done, CornerRadius::same(2), p.accent);
+
+    let clip = text_rect.expand2(vec2(6.0, 4.0));
+    let tp = ui.painter_at(clip);
+    // Caret: soft cell highlight + underline on the character to type next.
     if state != RunState::Finished {
         let c = caret.translate(origin.to_vec2());
+        let n = caret_next.translate(origin.to_vec2());
+        let w = if (n.min.y - c.min.y).abs() < 1.0 && n.min.x > c.min.x {
+            n.min.x - c.min.x
+        } else {
+            font_size * 0.6
+        };
+        let cell = Rect::from_min_size(
+            pos2(c.min.x - 1.0, c.min.y + line_h * 0.12),
+            vec2(w + 2.0, line_h * 0.8),
+        );
         let color = if a.run.blocked_error {
             p.error
         } else {
             p.accent
         };
-        text_painter.rect_filled(
-            Rect::from_min_max(
-                pos2(c.min.x - 1.0, c.min.y + line_h * 0.12),
-                pos2(c.min.x + 1.5, c.max.y - line_h * 0.08),
+        tp.rect_filled(cell, CornerRadius::same(4), color.gamma_multiply(0.14));
+        tp.rect_filled(
+            Rect::from_min_size(
+                pos2(cell.left(), cell.bottom() - 2.5),
+                vec2(cell.width(), 3.0),
             ),
-            1.0,
+            CornerRadius::same(2),
             color,
         );
     }
+    tp.galley(origin, galley.clone(), Color32::WHITE);
+    if state == RunState::Paused {
+        tp.rect_filled(clip, 0.0, p.panel);
+    }
 
-    // ---------------------------------------------------------------- footer
-    painter.text(
-        pos2(full.center().x, full.bottom() - 16.0),
-        Align2::CENTER_CENTER,
-        "esc — pause",
-        FontId::proportional(13.0),
-        p.sub,
-    );
+    // ---------------------------------------------------------------- stat strip
+    let secs = if started {
+        run.active_ns(now_ns) as f64 / 1e9
+    } else {
+        0.0
+    };
+    let summary = run.summary();
+    let mut items: Vec<(&str, String)> = Vec::new();
+    if live_wpm {
+        items.push((
+            "speed",
+            if started && secs > 1.0 {
+                format!("{:.0} wpm", run.live_wpm(now_ns))
+            } else {
+                "–".into()
+            },
+        ));
+    }
+    items.push((
+        "accuracy",
+        if started {
+            format!("{:.0}%", 100.0 * summary.accuracy)
+        } else {
+            "–".into()
+        },
+    ));
+    items.push(("time", super::clock(secs)));
+    items.push(("to go", format!("{}", target.len().saturating_sub(cursor))));
+    let strip_y = sheet.bottom() + 26.0;
+    let slot = sheet_w / items.len() as f32;
+    for (i, (label, value)) in items.iter().enumerate() {
+        let x = sheet.left() + slot * (i as f32 + 0.5);
+        painter.text(
+            pos2(x, strip_y),
+            Align2::CENTER_TOP,
+            label.to_uppercase(),
+            FontId::proportional(11.0),
+            p.sub,
+        );
+        painter.text(
+            pos2(x, strip_y + 16.0),
+            Align2::CENTER_TOP,
+            value,
+            FontId::new(20.0, super::theme::bold()),
+            p.text,
+        );
+    }
 
     // ---------------------------------------------------------------- pause menu
     if state == RunState::Paused {
         let mut action = None;
         let mut resume = false;
-        let menu = Rect::from_center_size(full.center(), vec2(340.0, 230.0));
+        let menu = Rect::from_center_size(sheet.center(), vec2(sheet_w - 80.0, 120.0));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(menu));
-        egui::Frame::new()
-            .fill(p.panel)
-            .corner_radius(egui::CornerRadius::same(12))
-            .inner_margin(egui::Margin::same(18))
-            .show(&mut child, |ui| {
-                ui.set_width(304.0);
-                ui.vertical_centered(|ui| {
-                    ui.label(RichText::new("Paused").size(26.0).color(p.accent));
-                    ui.label(muted(&p, "paused time is not counted"));
-                    ui.add_space(8.0);
-                    let b = |ui: &mut Ui, t: &str| {
-                        ui.add_sized([240.0, 30.0], egui::Button::new(t)).clicked()
-                    };
-                    if b(ui, "Resume   (esc)") {
-                        resume = true;
-                    }
-                    if b(ui, "Restart lesson   (r)") {
-                        action = Some(PausedAction::Restart);
-                    }
-                    if b(ui, "Skip lesson   (s)") {
-                        action = Some(PausedAction::Skip);
-                    }
-                    if b(ui, "Quit to menu   (q)") {
-                        action = Some(PausedAction::Quit);
-                    }
-                });
+        child.vertical_centered(|ui| {
+            ui.label(strong("Paused", 24.0).color(p.text));
+            ui.label(muted(&p, "the clock is stopped").size(13.0));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let total = 4.0 * 150.0 + 3.0 * 10.0;
+                ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
+                let b = |ui: &mut Ui, t: &str| {
+                    ui.add_sized([150.0, 34.0], egui::Button::new(t)).clicked()
+                };
+                if b(ui, "Resume  ·  Esc") {
+                    resume = true;
+                }
+                if b(ui, "Restart  ·  R") {
+                    action = Some(PausedAction::Restart);
+                }
+                if b(ui, "Skip  ·  S") {
+                    action = Some(PausedAction::Skip);
+                }
+                if b(ui, "Leave  ·  Q") {
+                    action = Some(PausedAction::Quit);
+                }
             });
+        });
         if resume {
             app.resume();
         }
         if action.is_some() {
             app.paused_action = action;
         }
+    }
+    let _ = eyebrow;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::target_mask;
+
+    #[test]
+    fn targets_are_found_case_insensitively() {
+        let t: Vec<char> = "You could".chars().collect();
+        let m = target_mask(&t, &["ou".into(), " c".into()]);
+        assert_eq!(
+            m,
+            vec![false, true, true, true, true, true, true, false, false]
+        );
+        assert!(target_mask(&t, &[" ".into()]).iter().all(|x| !x));
     }
 }
