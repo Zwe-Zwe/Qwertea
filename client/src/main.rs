@@ -204,5 +204,11 @@ fn main() {
     }
     if let Some(app) = runner.app.as_mut() {
         app.shutdown();
+        // Restart after an in-app update: start the new build.
+        if let Some(exe) = app.restart_with.take() {
+            if let Err(e) = std::process::Command::new(&exe).spawn() {
+                eprintln!("qwertea: cannot restart {}: {e}", exe.display());
+            }
+        }
     }
 }

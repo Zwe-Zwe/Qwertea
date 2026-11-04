@@ -1,9 +1,15 @@
-//! Settings: saved to `config.toml` (comments and engine sections are kept).
+//! Settings. Everything saves itself a moment after you change it:
+//! * profile settings (look, lessons, typing) go to the open profile's
+//!   database, so each person keeps their own (decision D28);
+//! * this computer's settings go to `config.toml` (comments are kept).
 
 use super::theme::{Palette, THEMES};
-use super::widgets::{card, eyebrow, muted, primary_button, strong};
+use super::widgets::{card, eyebrow, muted, primary_button, segmented, strong};
 use crate::app::App;
 use crate::config::{PresentModePref, TimestampSourceKind};
+use crate::profile::{CaretStyle, LessonLength, LiveStats, TypingFont};
+use crate::session::ErrorMode;
+use crate::update::{InstallKind, State as UpdateState};
 use egui::{
     pos2, vec2, Align2, CornerRadius, FontId, Rect, RichText, Sense, Stroke, StrokeKind, Ui,
 };
@@ -92,80 +98,156 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let width = ui.available_width();
                 ui.label(eyebrow(&p, "Settings"));
                 ui.label(strong("Make it yours", 30.0).color(p.text));
+                ui.label(muted(
+                    &p,
+                    format!(
+                        "Changes save automatically. Look, lessons and typing belong to {}'s profile.",
+                        app.profile.name
+                    ),
+                ));
                 ui.add_space(14.0);
+                let mut dirty = false;
 
                 card(ui, &p, |ui| {
                     ui.set_width(width - 40.0);
-                    ui.label(eyebrow(&p, "Theme"));
+                    ui.label(eyebrow(&p, "Look"));
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = vec2(14.0, 14.0);
                         for t in THEMES {
                             let selected =
-                                super::theme::palette(&app.cfg.client.theme).name == t.name;
+                                super::theme::palette(&app.profile.theme).name == t.name;
                             if theme_card(ui, &t, selected, &p) {
-                                app.cfg.client.theme = t.name.to_string();
-                                app.settings_dirty = true;
+                                app.profile.theme = t.name.to_string();
+                                dirty = true;
                             }
                         }
                     });
                     ui.add_space(8.0);
+                    let s = &mut app.profile;
+                    row(ui, &p, "Typing font", "The lesson text's typeface.", |ui| {
+                        let opts: Vec<_> = TypingFont::ALL.iter().map(|f| (*f, f.label())).collect();
+                        dirty |= segmented(ui, &p, &mut s.typing_font, &opts);
+                    });
                     row(ui, &p, "Text size", "Size of the lesson text.", |ui| {
-                        if ui
+                        dirty |= ui
                             .add(
-                                egui::Slider::new(&mut app.cfg.client.font_size, 16.0..=48.0)
-                                    .step_by(1.0),
+                                egui::Slider::new(&mut s.font_size, 16.0..=48.0)
+                                    .step_by(1.0)
+                                    .fixed_decimals(0),
                             )
-                            .changed()
-                        {
-                            app.settings_dirty = true;
-                        }
+                            .changed();
+                    });
+                    row(ui, &p, "Caret", "How the next character is marked.", |ui| {
+                        let opts: Vec<_> = CaretStyle::ALL.iter().map(|c| (*c, c.label())).collect();
+                        dirty |= segmented(ui, &p, &mut s.caret, &opts);
                     });
                     row(
                         ui,
                         &p,
-                        "Live speed",
-                        "Show WPM under the text while you type.",
+                        "Smooth caret",
+                        "The caret glides between characters instead of jumping.",
+                        |ui| dirty |= ui.checkbox(&mut s.smooth_caret, "").changed(),
+                    );
+                    row(
+                        ui,
+                        &p,
+                        "Live stats",
+                        "What shows under the text while you type.",
                         |ui| {
-                            if ui.checkbox(&mut app.cfg.client.live_wpm, "").changed() {
-                                app.settings_dirty = true;
-                            }
+                            let opts: Vec<_> =
+                                LiveStats::ALL.iter().map(|c| (*c, c.label())).collect();
+                            dirty |= segmented(ui, &p, &mut s.live_stats, &opts);
                         },
                     );
                 });
                 ui.add_space(14.0);
 
+                card(ui, &p, |ui| {
+                    ui.set_width(width - 40.0);
+                    ui.label(eyebrow(&p, "Lessons"));
+                    let s = &mut app.profile;
+                    row(
+                        ui,
+                        &p,
+                        "Lesson length",
+                        "Short ≈ 30 s, medium ≈ 1 min, long ≈ 2 min at 40 wpm.",
+                        |ui| {
+                            if s.lesson_length == LessonLength::Custom {
+                                dirty |= ui
+                                    .add(
+                                        egui::DragValue::new(&mut s.lesson_chars)
+                                            .range(40..=2000)
+                                            .speed(5)
+                                            .suffix(" chars"),
+                                    )
+                                    .changed();
+                            }
+                            let opts: Vec<_> =
+                                LessonLength::ALL.iter().map(|c| (*c, c.label())).collect();
+                            dirty |= segmented(ui, &p, &mut s.lesson_length, &opts);
+                        },
+                    );
+                    row(ui, &p, "Capital letters", "Off: lessons are all lower case.", |ui| {
+                        dirty |= ui.checkbox(&mut s.capitals, "").changed()
+                    });
+                    row(ui, &p, "Punctuation", "Off: no commas, full stops or quotes.", |ui| {
+                        dirty |= ui.checkbox(&mut s.punctuation, "").changed()
+                    });
+                    row(ui, &p, "Numbers", "Mix numbers into the text.", |ui| {
+                        dirty |= ui.checkbox(&mut s.numbers, "").changed()
+                    });
+                    ui.label(
+                        muted(
+                            &p,
+                            "New lessons are brewed with these settings within a few seconds. \
+                             Calibration lessons stay as they are, so they measure every key.",
+                        )
+                        .size(12.5),
+                    );
+                });
+                ui.add_space(14.0);
+
+                let mut sound_changed = false;
                 card(ui, &p, |ui| {
                     ui.set_width(width - 40.0);
                     ui.label(eyebrow(&p, "Typing"));
+                    let s = &mut app.profile;
+                    row(ui, &p, "Mistakes", mistake_help(s.error_mode), |ui| {
+                        let opts: Vec<_> = ErrorMode::ALL.iter().map(|c| (*c, c.label())).collect();
+                        dirty |= segmented(ui, &p, &mut s.error_mode, &opts);
+                    });
                     row(
                         ui,
                         &p,
-                        "Stop on error",
-                        "The caret waits until you press the right key.",
+                        "Key sounds",
+                        "A soft click for each key, a lower one for a mistake.",
                         |ui| {
-                            if ui.checkbox(&mut app.cfg.client.stop_on_error, "").changed() {
-                                app.settings_dirty = true;
+                            if ui.checkbox(&mut s.sound, "").changed() {
+                                dirty = true;
+                                sound_changed = true;
                             }
                         },
                     );
-                    let layout = app.cfg.general.layout.clone();
-                    row(
-                        ui,
-                        &p,
-                        "Keyboard layout",
-                        "Set general.layout in config.toml.",
-                        |ui| {
-                            ui.label(RichText::new(layout).monospace());
-                        },
-                    );
+                    if let Some(e) = app.sound.error.as_ref().filter(|_| app.profile.sound) {
+                        ui.label(RichText::new(format!("Sound unavailable: {e}")).color(p.error).size(12.5));
+                    }
                 });
+                if sound_changed {
+                    app.sync_sound();
+                }
+                if dirty {
+                    app.mark_profile_dirty();
+                }
+                ui.add_space(14.0);
+
+                updates_card(app, ui, width);
                 ui.add_space(14.0);
 
                 card(ui, &p, |ui| {
                     ui.set_width(width - 40.0);
-                    ui.label(eyebrow(&p, "Timing · applies after a restart"));
-                    let c = &mut app.cfg.client;
+                    ui.label(eyebrow(&p, "This computer · timing applies after a restart"));
                     let mut dirty = false;
+                    let c = &mut app.cfg.client;
                     row(
                         ui,
                         &p,
@@ -221,8 +303,25 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                 .changed();
                         },
                     );
+                    let layout = app.cfg.general.layout.clone();
+                    row(
+                        ui,
+                        &p,
+                        "Keyboard layout",
+                        "Set general.layout in config.toml.",
+                        |ui| {
+                            ui.label(RichText::new(layout).monospace());
+                        },
+                    );
+                    row(
+                        ui,
+                        &p,
+                        "Start the engine automatically",
+                        "The engine analyses lessons and brews new ones.",
+                        |ui| dirty |= ui.checkbox(&mut app.cfg.engine.autostart, "").changed(),
+                    );
                     if dirty {
-                        app.settings_dirty = true;
+                        app.mark_cfg_dirty();
                     }
                 });
                 ui.add_space(14.0);
@@ -230,22 +329,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 card(ui, &p, |ui| {
                     ui.set_width(width - 40.0);
                     ui.label(eyebrow(&p, "Engine & data"));
-                    row(
-                        ui,
-                        &p,
-                        "Start the engine automatically",
-                        "The engine analyses lessons and brews new ones.",
-                        |ui| {
-                            if ui.checkbox(&mut app.cfg.engine.autostart, "").changed() {
-                                app.settings_dirty = true;
-                            }
-                        },
-                    );
                     let status = app.engine.status.label();
                     row(ui, &p, "Engine status", "", |ui| {
                         ui.label(muted(&p, status));
                     });
-                    let db = app.cfg.db_path().display().to_string();
+                    let db = app.db_path().display().to_string();
                     let log = app.engine.log_path().display().to_string();
                     ui.label(muted(&p, format!("Database  {db}")).size(12.5));
                     ui.label(muted(&p, format!("Engine log  {log}")).size(12.5));
@@ -268,27 +356,160 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     });
                 });
                 ui.add_space(16.0);
-                ui.horizontal(|ui| {
-                    if app.settings_dirty {
-                        if primary_button(ui, &p, "Save settings", "").clicked() {
-                            app.save_settings();
-                        }
-                    } else {
-                        ui.label(muted(&p, "All changes saved."));
-                    }
-                    ui.add_space(16.0);
-                    ui.label(
-                        muted(
-                            &p,
-                            format!(
-                                "Qwertea {} · everything stays on this computer.",
-                                env!("CARGO_PKG_VERSION")
-                            ),
-                        )
-                        .size(12.5),
-                    );
-                });
+                let saved = app.profile_dirty_at.is_none() && app.cfg_dirty_at.is_none();
+                ui.label(
+                    muted(
+                        &p,
+                        format!(
+                            "{} · Qwertea {} · everything stays on this computer.",
+                            if saved { "All changes saved" } else { "Saving…" },
+                            env!("CARGO_PKG_VERSION")
+                        ),
+                    )
+                    .size(12.5),
+                );
                 ui.add_space(24.0);
             });
         });
+}
+
+fn mistake_help(m: ErrorMode) -> &'static str {
+    match m {
+        ErrorMode::Normal => "A wrong key is marked and the caret moves on.",
+        ErrorMode::StopOnError => "The caret waits until you press the right key.",
+        ErrorMode::StrictWord => "Fix every mistake (Backspace) before the next word.",
+    }
+}
+
+/// Update status and actions; also used on the home screen when an update is ready.
+pub fn updates_card(app: &mut App, ui: &mut Ui, width: f32) {
+    let p = app.palette;
+    card(ui, &p, |ui| {
+        ui.set_width(width - 40.0);
+        ui.label(eyebrow(&p, "Updates"));
+        update_status(app, ui);
+        ui.add_space(4.0);
+        let mut check = app.cfg.updates.check;
+        row(
+            ui,
+            &p,
+            "Check for updates at start-up",
+            "Asks GitHub for the latest version number. Nothing else is sent.",
+            |ui| {
+                if ui.checkbox(&mut check, "").changed() {
+                    app.cfg.updates.check = check;
+                    app.mark_cfg_dirty();
+                }
+            },
+        );
+    });
+}
+
+/// The current update state with the buttons that fit it.
+pub fn update_status(app: &mut App, ui: &mut Ui) {
+    let p = app.palette;
+    let state = app.updater.state();
+    let kind = app.updater.kind.clone();
+    let current = env!("CARGO_PKG_VERSION");
+    match state {
+        UpdateState::Idle | UpdateState::UpToDate | UpdateState::CheckFailed(_) => {
+            ui.horizontal(|ui| {
+                let msg = match &state {
+                    UpdateState::UpToDate => format!("Qwertea {current} is the latest version."),
+                    UpdateState::CheckFailed(e) => format!("Could not check: {e}."),
+                    _ => format!("You have Qwertea {current} ({}).", kind.label()),
+                };
+                ui.label(RichText::new(msg).color(p.text));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Check now").clicked() {
+                        app.updater.check();
+                    }
+                });
+            });
+        }
+        UpdateState::Checking => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(muted(&p, "Checking for updates…"));
+            });
+        }
+        UpdateState::Available { version } => {
+            ui.label(
+                RichText::new(format!(
+                    "Qwertea {version} is available (you have {current})."
+                ))
+                .color(p.text)
+                .size(16.0),
+            );
+            let url = app.updater.release_url(&version);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                match &kind {
+                InstallKind::Source { .. } => {
+                    if primary_button(ui, &p, "Update now", "").clicked() {
+                        app.flush_settings();
+                        app.updater.install();
+                    }
+                    ui.label(muted(&p, "Downloads, builds and installs it for you.").size(12.5));
+                }
+                InstallKind::ArchPackage => {
+                    let cmd = app.updater.manual_command().unwrap_or_default();
+                    ui.label(muted(&p, "Update it like your other packages:"));
+                    ui.label(RichText::new(cmd).monospace().color(p.text));
+                    if ui.button("Copy command").clicked() {
+                        ui.ctx().copy_text(cmd.to_string());
+                        app.toast("Copied. Paste it into a terminal, or update from your software manager.");
+                    }
+                }
+                InstallKind::Other => {
+                    ui.label(muted(&p, "Download the new version from the release page."));
+                }
+                }
+            });
+            if ui.link("What's new (release notes)").clicked() {
+                if let Err(e) = crate::app::open_in_browser(std::path::Path::new(&url)) {
+                    app.toast(format!("Could not open the browser: {e}"));
+                }
+            }
+        }
+        UpdateState::Installing { version, step } => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(format!("Updating to {version}: {step}…")).color(p.text));
+            });
+            ui.label(
+                muted(
+                    &p,
+                    "You can keep typing; the app restarts when you are ready.",
+                )
+                .size(12.5),
+            );
+        }
+        UpdateState::Installed { version } => {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("Qwertea {version} is installed."))
+                        .color(p.good)
+                        .size(16.0),
+                );
+                if primary_button(ui, &p, "Restart now", "").clicked() {
+                    app.restart();
+                }
+            });
+        }
+        UpdateState::InstallFailed(e) => {
+            ui.label(RichText::new(format!("The update did not finish: {e}")).color(p.error));
+            ui.label(
+                muted(
+                    &p,
+                    "Nothing was changed that stops this version working. From a terminal in the \
+                     Qwertea folder, `git pull && make build` finishes it by hand.",
+                )
+                .size(12.5),
+            );
+            if ui.button("Try again").clicked() {
+                app.updater.check();
+            }
+        }
+    }
 }

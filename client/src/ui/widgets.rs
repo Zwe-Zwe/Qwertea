@@ -758,6 +758,7 @@ pub enum Icon {
     Chart,
     Sliders,
     Page,
+    Person,
 }
 
 pub fn icon(painter: &egui::Painter, center: Pos2, size: f32, which: Icon, color: Color32) {
@@ -798,6 +799,16 @@ pub fn icon(painter: &egui::Painter, center: Pos2, size: f32, which: Icon, color
                 painter.circle_filled(pos2(c.x + k * 2.0 * s, y), 2.6 * s, color);
             }
         }
+        Icon::Person => {
+            painter.circle_stroke(c + vec2(0.0, -3.5) * s, 3.6 * s, st);
+            let pts: Vec<Pos2> = (0..=12)
+                .map(|i| {
+                    let a = std::f32::consts::PI * (i as f32 / 12.0);
+                    c + vec2(-7.0 * a.cos(), 8.0 - 5.5 * a.sin()) * s
+                })
+                .collect();
+            painter.add(egui::Shape::line(pts, st));
+        }
         Icon::Page => {
             let r = Rect::from_center_size(c, vec2(12.0, 16.0) * s);
             painter.rect_stroke(r, CornerRadius::same(2), st, StrokeKind::Middle);
@@ -810,4 +821,65 @@ pub fn icon(painter: &egui::Painter, center: Pos2, size: f32, which: Icon, color
             }
         }
     }
+}
+
+/// A row of mutually exclusive options. Returns true when the choice changed.
+/// Works in left-to-right and right-to-left layouts (options keep their order).
+pub fn segmented<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    p: &Palette,
+    value: &mut T,
+    options: &[(T, &str)],
+) -> bool {
+    let mut changed = false;
+    let rtl = ui.layout().main_dir() == egui::Direction::RightToLeft;
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let mut draw = |ui: &mut Ui, v: T, label: &str| {
+            let sel = *value == v;
+            let text = RichText::new(label)
+                .size(14.0)
+                .color(if sel { p.bg } else { p.text });
+            let b = egui::Button::new(text)
+                .fill(if sel { p.accent } else { p.panel_hi })
+                .corner_radius(CornerRadius::same(8))
+                .min_size(vec2(0.0, 30.0));
+            if ui.add(b).clicked() && !sel {
+                *value = v;
+                changed = true;
+            }
+        };
+        if rtl {
+            for (v, l) in options.iter().rev() {
+                draw(ui, *v, l);
+            }
+        } else {
+            for (v, l) in options {
+                draw(ui, *v, l);
+            }
+        }
+    });
+    changed
+}
+
+/// A round avatar with the profile's initial.
+pub fn avatar(ui: &mut Ui, p: &Palette, name: &str, size: f32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
+    let initial: String = name
+        .trim()
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().collect())
+        .unwrap_or_else(|| "?".into());
+    let pt = ui.painter();
+    pt.circle_filled(rect.center(), size / 2.0, p.accent.gamma_multiply(0.22));
+    pt.circle_stroke(rect.center(), size / 2.0 - 0.75, Stroke::new(1.5, p.accent));
+    pt.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        initial,
+        egui::FontId::new(size * 0.46, bold()),
+        p.accent,
+    );
+    resp
 }

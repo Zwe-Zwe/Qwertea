@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -93,6 +94,11 @@ def serve(
     ] = True,
 ) -> None:
     """Poll the database and run `run-once` whenever there is work (Ctrl+C to stop)."""
+    # Stop cleanly on Ctrl+C or when the app stops us, even if we were started
+    # with SIGINT ignored (as background jobs are).
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _raise_interrupt)
     cfg, eng = _engine(config)
     lock = cfg.db_path.parent / "engine.pid"
     lock.write_text(str(os.getpid()))
@@ -122,6 +128,10 @@ def serve(
         pass
     finally:
         lock.unlink(missing_ok=True)
+
+
+def _raise_interrupt(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt
 
 
 def _alive(pid: int) -> bool:

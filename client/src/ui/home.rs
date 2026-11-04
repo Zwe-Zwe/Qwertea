@@ -70,6 +70,19 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui.label(strong(greeting(app), 30.0).color(p.text));
             ui.add_space(14.0);
             let gap = 16.0;
+            if matches!(
+                app.updater.state(),
+                crate::update::State::Available { .. }
+                    | crate::update::State::Installing { .. }
+                    | crate::update::State::Installed { .. }
+            ) {
+                card(ui, &p, |ui| {
+                    ui.set_width(full - 40.0);
+                    ui.label(eyebrow(&p, "Update"));
+                    super::settings::update_status(app, ui);
+                });
+                ui.add_space(gap);
+            }
             let action: Cell<Option<NextAction>> = Cell::new(None);
             if full >= 760.0 {
                 super::widgets::split(
@@ -173,9 +186,10 @@ fn recent_card(app: &App, ui: &mut Ui, w: f32, min_h: f32) -> f32 {
                     ui.label(eyebrow(&p, h));
                 }
                 ui.end_row();
-                for (n, wpm, acc, _secs, phase) in rows {
-                    ui.label(muted(&p, n.to_string()));
-                    ui.label(phase_name(phase));
+                for l in rows {
+                    let (wpm, acc) = (l.wpm, &l.accuracy);
+                    ui.label(muted(&p, l.n.to_string()));
+                    ui.label(phase_name(&l.phase));
                     ui.label(RichText::new(format!("{wpm:.0} wpm")).color(p.text));
                     let c = if *acc >= 0.96 {
                         p.good
@@ -363,8 +377,8 @@ fn level_card(app: &App, ui: &mut Ui, width: f32, min_h: f32) -> f32 {
             return;
         }
         let n = recent.len() as f64;
-        let wpm = recent.iter().map(|l| l.1).sum::<f64>() / n;
-        let acc = recent.iter().map(|l| l.2).sum::<f64>() / n;
+        let wpm = recent.iter().map(|l| l.wpm).sum::<f64>() / n;
+        let acc = recent.iter().map(|l| l.accuracy).sum::<f64>() / n;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 26.0;
             metric(ui, &p, "speed", &format!("{wpm:.0}"), "wpm", 34.0);
@@ -377,7 +391,7 @@ fn level_card(app: &App, ui: &mut Ui, width: f32, min_h: f32) -> f32 {
                 34.0,
             );
         });
-        let series: Vec<f64> = app.history.recent(20).iter().map(|l| l.1).collect();
+        let series: Vec<f64> = app.history.recent(20).iter().map(|l| l.wpm).collect();
         ui.add_space(4.0);
         sparkline(ui, &p, &series, vec2(width - 40.0, 46.0), p.accent);
         ui.label(

@@ -25,8 +25,9 @@ def test_prefs_parsing() -> None:
 
 def test_apply_content_switches() -> None:
     rng = random.Random(1)
-    t = "Well, I don't know! \"Yes,\" said Emma; 42 times."
-    assert apply_content(t, False, True, False, rng) == 'well, i don\'t know! "yes," said emma; times.'
+    t = 'Well, I don\'t know! "Yes," said Emma; 42 times.'
+    lower = apply_content(t, False, True, False, rng)
+    assert lower == 'well, i don\'t know! "yes," said emma; times.'
     assert apply_content(t, True, False, False, rng) == "Well I don't know Yes said Emma times"
     with_numbers = apply_content(" ".join(["word"] * 120), True, True, True, random.Random(3))
     assert any(w.isdigit() for w in with_numbers.split())

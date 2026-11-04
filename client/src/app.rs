@@ -11,9 +11,12 @@ use crate::config::{Config, TimestampSourceKind};
 use crate::db::{self, CalibrationProgress, LessonOutcome, LevelInfo, PendingLesson};
 use crate::engine_proc::EngineProc;
 use crate::layout::Layout;
-use crate::session::{KeyKind, LessonRun, RunState};
+use crate::profile::{self, ProfileSettings, Registry};
+use crate::session::{CharState, KeyKind, LessonRun, RunState};
+use crate::sound::KeySound;
 use crate::stats::{self, LessonStats};
 use crate::ui::theme::{self, Palette};
+use crate::update::Updater;
 use rusqlite::Connection;
 use std::time::{Duration, Instant};
 
@@ -28,6 +31,7 @@ pub enum Screen {
     SittingDone,
     Stats,
     Settings,
+    Profile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,29 +62,78 @@ pub struct Finished {
     pub best_before: Option<f64>,
 }
 
+/// One finished lesson, as the progress screens show it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistLesson {
+    /// 1-based position in the history.
+    pub n: usize,
+    pub wpm: f64,
+    pub accuracy: f64,
+    pub seconds: f64,
+    pub phase: String,
+    /// Local calendar day it was finished.
+    pub day: Option<chrono::NaiveDate>,
+}
+
 /// Lesson history for the stats screen and home overview.
 #[derive(Default)]
 pub struct History {
-    /// (lesson index, wpm, accuracy, seconds, phase)
-    pub lessons: Vec<(usize, f64, f64, f64, String)>,
+    pub lessons: Vec<HistLesson>,
     pub loaded_at: Option<Instant>,
 }
 
 impl History {
-    pub fn recent(&self, n: usize) -> &[(usize, f64, f64, f64, String)] {
+    pub fn recent(&self, n: usize) -> &[HistLesson] {
         let k = self.lessons.len().saturating_sub(n);
         &self.lessons[k..]
     }
     pub fn best_wpm(&self) -> Option<f64> {
-        self.lessons.iter().map(|l| l.1).reduce(f64::max)
+        self.lessons.iter().map(|l| l.wpm).reduce(f64::max)
     }
     pub fn total_seconds(&self) -> f64 {
-        self.lessons.iter().map(|l| l.3).sum()
+        self.lessons
+            .iter()
+            .map(|l| l.seconds)
+            .fold(0.0, |a, b| a + b)
     }
+    /// Seconds typed on `day`.
+    pub fn seconds_on(&self, day: chrono::NaiveDate) -> f64 {
+        self.lessons
+            .iter()
+            .filter(|l| l.day == Some(day))
+            .map(|l| l.seconds)
+            .fold(0.0, |a, b| a + b)
+    }
+    /// Days in a row with practice, ending today or yesterday.
+    pub fn streak(&self, today: chrono::NaiveDate) -> u32 {
+        let days: Vec<_> = self.lessons.iter().filter_map(|l| l.day).collect();
+        profile::streak(&days, today)
+    }
+}
+
+/// Text fields and confirmations on the profile screen.
+#[derive(Default)]
+pub struct ProfileUi {
+    pub rename: Option<String>,
+    pub new_name: String,
+    pub import_path: String,
+    pub confirm_delete: Option<String>,
 }
 
 pub struct App {
     pub cfg: Config,
+    /// All profiles on this computer and which one is open.
+    pub registry: Registry,
+    /// The open profile's settings (saved in its database).
+    pub profile: ProfileSettings,
+    /// When profile settings / device settings last changed (saved shortly after).
+    pub profile_dirty_at: Option<Instant>,
+    pub cfg_dirty_at: Option<Instant>,
+    pub profile_ui: ProfileUi,
+    pub sound: KeySound,
+    pub updater: Updater,
+    /// Start this program after quitting (restart after an update).
+    pub restart_with: Option<std::path::PathBuf>,
     pub conn: Option<Connection>,
     pub db_error: Option<String>,
     pub palette: Palette,
@@ -111,7 +164,6 @@ pub struct App {
     pub mods: winit::keyboard::ModifiersState,
     pub paused_action: Option<PausedAction>,
     pub confirm_skip_calibration: bool,
-    pub settings_dirty: bool,
     pub theme_applied: Option<String>,
     pub quit_requested: bool,
     #[cfg(all(target_os = "linux", feature = "evdev-capture"))]
@@ -120,21 +172,23 @@ pub struct App {
 
 impl App {
     pub fn new(cfg: Config) -> Self {
-        let (conn, db_error) = match db::open(&cfg.db_path()) {
-            Ok(c) => {
-                let _ = db::recover_running(&c);
-                (Some(c), None)
-            }
-            Err(e) => (
-                None,
-                Some(format!("cannot open {}: {e}", cfg.db_path().display())),
-            ),
-        };
-        let engine = EngineProc::start(&cfg);
-        let palette = theme::palette(&cfg.client.theme);
+        let registry = Registry::ensure(&cfg);
+        let db_path = registry.db_path(registry.active());
+        let (conn, db_error, profile) = Self::open_profile_db(&db_path, &cfg);
+        let engine = EngineProc::start(&cfg, &db_path);
+        let palette = theme::palette(&profile.theme);
         let layout = Layout::load(&cfg.layout_file());
+        let updater = Updater::new(&cfg);
         #[allow(unused_mut)]
         let mut app = Self {
+            registry,
+            profile,
+            profile_dirty_at: None,
+            cfg_dirty_at: None,
+            profile_ui: ProfileUi::default(),
+            sound: KeySound::off(),
+            updater,
+            restart_with: None,
             conn,
             db_error,
             palette,
@@ -162,7 +216,6 @@ impl App {
             mods: Default::default(),
             paused_action: None,
             confirm_skip_calibration: false,
-            settings_dirty: false,
             theme_applied: None,
             quit_requested: false,
             #[cfg(all(target_os = "linux", feature = "evdev-capture"))]
@@ -170,11 +223,199 @@ impl App {
             cfg,
         };
         app.start_evdev();
+        app.sync_sound();
+        if app.cfg.updates.check {
+            app.updater.check();
+        }
         app.refresh_queue();
         app.refresh_history();
         app
     }
 
+    /// Open a profile database: recover an interrupted lesson and load its settings.
+    fn open_profile_db(
+        path: &std::path::Path,
+        cfg: &Config,
+    ) -> (Option<Connection>, Option<String>, ProfileSettings) {
+        match db::open(path) {
+            Ok(c) => {
+                let _ = db::recover_running(&c);
+                let s = ProfileSettings::load(&c, &cfg.client).unwrap_or_default();
+                (Some(c), None, s)
+            }
+            Err(e) => (
+                None,
+                Some(format!("cannot open {}: {e}", path.display())),
+                ProfileSettings::default(),
+            ),
+        }
+    }
+
+    /// The open profile's database.
+    pub fn db_path(&self) -> std::path::PathBuf {
+        self.registry.db_path(self.registry.active())
+    }
+
+    /// Close the open profile (saving it) and open `id`: its own database,
+    /// engine, settings, theme and history.
+    pub fn switch_profile(&mut self, id: &str) {
+        if id == self.registry.active || !self.registry.profiles.iter().any(|p| p.id == id) {
+            return;
+        }
+        self.abandon_active();
+        self.flush_settings();
+        self.engine.stop();
+        self.registry.active = id.to_string();
+        if let Err(e) = self.registry.save() {
+            self.toast(format!("could not save profiles: {e}"));
+        }
+        let path = self.db_path();
+        let (conn, err, profile) = Self::open_profile_db(&path, &self.cfg);
+        self.conn = conn;
+        self.db_error = err;
+        self.profile = profile;
+        // Keep the registry's name in step with the profile's own.
+        let name = self.profile.name.clone();
+        if self.registry.active().name != name {
+            let _ = self.registry.rename(id, &name);
+        }
+        self.engine = EngineProc::start(&self.cfg, &path);
+        self.theme_applied = None;
+        self.session = None;
+        self.last_calib = None;
+        self.last = None;
+        self.intro = None;
+        self.confirm_skip_calibration = false;
+        self.profile_ui = ProfileUi::default();
+        self.sync_sound();
+        self.refresh_queue();
+        self.refresh_history();
+        self.toast(format!("Switched to {name}"));
+    }
+
+    /// Create a profile and switch to it.
+    pub fn create_profile(&mut self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        match self.registry.create(name) {
+            Ok(entry) => {
+                // Seed the new profile's settings with its name.
+                let path = self.registry.db_path(&entry);
+                if let Ok(c) = db::open(&path) {
+                    let s = ProfileSettings {
+                        name: name.to_string(),
+                        ..ProfileSettings::default()
+                    };
+                    let _ = s.save(&c);
+                }
+                self.switch_profile(&entry.id);
+            }
+            Err(e) => self.toast(format!("could not create profile: {e}")),
+        }
+    }
+
+    pub fn rename_profile(&mut self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        self.profile.name = name.to_string();
+        self.mark_profile_dirty();
+        let id = self.registry.active.clone();
+        if let Err(e) = self.registry.rename(&id, name) {
+            self.toast(format!("could not save profiles: {e}"));
+        }
+    }
+
+    pub fn delete_profile(&mut self, id: &str) {
+        let name = self
+            .registry
+            .profiles
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+        match self.registry.remove(id) {
+            Ok(()) => self.toast(format!("Deleted {name}")),
+            Err(e) => self.toast(format!("could not delete: {e}")),
+        }
+    }
+
+    /// Save the open profile as one file in ~/Downloads (or home).
+    pub fn export_profile(&mut self) {
+        self.flush_settings();
+        let Some(conn) = &self.conn else { return };
+        let stamp = chrono::Local::now().format("%Y-%m-%d");
+        let file = profile::export_dir().join(format!(
+            "qwertea-{}-{stamp}.qwertea",
+            self.registry.active().id
+        ));
+        match profile::export(conn, &file) {
+            Ok(()) => self.toast(format!("Saved {}", file.display())),
+            Err(e) => self.toast(format!("export failed: {e}")),
+        }
+    }
+
+    pub fn import_profile(&mut self, path: &str) {
+        let p = std::path::PathBuf::from(path.trim().trim_matches('"'));
+        let p = match p.strip_prefix("~") {
+            Ok(rest) => std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_default()
+                .join(rest),
+            Err(_) => p,
+        };
+        match self.registry.import(&p) {
+            Ok(entry) => {
+                self.profile_ui.import_path.clear();
+                self.toast(format!("Imported {}", entry.name));
+            }
+            Err(e) => self.toast(e),
+        }
+    }
+
+    /// A profile setting changed in the UI; saved shortly after (see `tick`).
+    pub fn mark_profile_dirty(&mut self) {
+        self.profile_dirty_at = Some(Instant::now());
+    }
+
+    /// A device setting (config.toml) changed in the UI.
+    pub fn mark_cfg_dirty(&mut self) {
+        self.cfg_dirty_at = Some(Instant::now());
+    }
+
+    /// Write pending setting changes now.
+    pub fn flush_settings(&mut self) {
+        if self.profile_dirty_at.take().is_some() {
+            if let Some(conn) = &self.conn {
+                if let Err(e) = self.profile.save(conn) {
+                    self.toast(format!("Could not save settings: {e}"));
+                }
+            }
+        }
+        if self.cfg_dirty_at.take().is_some() {
+            if let Err(e) = self.cfg.save() {
+                self.toast(format!("Could not save settings: {e}"));
+            }
+        }
+    }
+
+    /// Open or close the sound output to match the profile setting.
+    pub fn sync_sound(&mut self) {
+        if self.profile.sound {
+            self.sound.enable();
+        } else {
+            self.sound.disable();
+        }
+    }
+
+    /// Start the updated program after this one exits.
+    pub fn restart(&mut self) {
+        self.restart_with = self.updater.restart_target();
+        self.quit_requested = true;
+    }
     fn start_evdev(&mut self) {
         if self.cfg.client.timestamp_source != TimestampSourceKind::Evdev {
             return;
@@ -248,7 +489,14 @@ impl App {
                 };
                 let s = stats::compute(&l.text, &ev);
                 if s.keystrokes >= 10 && s.seconds > 0.0 {
-                    out.push((out.len() + 1, s.wpm, s.accuracy, s.seconds, l.phase.clone()));
+                    out.push(HistLesson {
+                        n: out.len() + 1,
+                        wpm: s.wpm,
+                        accuracy: s.accuracy,
+                        seconds: s.seconds,
+                        phase: l.phase.clone(),
+                        day: profile::local_day(&l.finished_at),
+                    });
                 }
             }
         }
@@ -353,7 +601,7 @@ impl App {
         if lesson.is_calibration() {
             self.last_calib = Some((lesson.phase.clone(), lesson.meta.sitting));
         }
-        let run = LessonRun::new(&lesson.text, self.cfg.client.stop_on_error);
+        let run = LessonRun::new(&lesson.text, self.profile.error_mode);
         #[cfg(all(target_os = "linux", feature = "evdev-capture"))]
         if let Some(k) = &self.kernel {
             k.clear();
@@ -393,7 +641,18 @@ impl App {
         let input = crate::capture::classify(event, mods);
         let t = received_at.saturating_duration_since(a.origin).as_nanos() as u64;
         let was_paused = a.run.state() == RunState::Paused;
+        let n_before = a.run.events().len();
         a.run.on_key(t, input);
+        if self.profile.sound && input.is_down && !was_paused && a.run.events().len() > n_before {
+            if let Some(ev) = a.run.events().last() {
+                if ev.produced_char.is_some() || ev.is_backspace {
+                    let wrong = ev.produced_char.is_some()
+                        && (a.run.blocked_error
+                            || a.run.char_state(ev.target_idx as usize) == CharState::Wrong);
+                    self.sound.click(wrong);
+                }
+            }
+        }
         if was_paused && input.is_down {
             if let KeyKind::Text(c) = input.kind {
                 self.paused_action = match c.to_ascii_lowercase() {
@@ -440,8 +699,8 @@ impl App {
                 let recent = (!recent.is_empty()).then(|| {
                     let n = recent.len() as f64;
                     (
-                        recent.iter().map(|l| l.1).sum::<f64>() / n,
-                        recent.iter().map(|l| l.2).sum::<f64>() / n,
+                        recent.iter().map(|l| l.wpm).sum::<f64>() / n,
+                        recent.iter().map(|l| l.accuracy).sum::<f64>() / n,
                     )
                 });
                 self.last = Some(Finished {
@@ -462,6 +721,23 @@ impl App {
             }
         }
         self.engine.poll(&self.cfg);
+        // Settings save themselves a moment after the last change (no Save
+        // button), never while a lesson is running.
+        let settle = Duration::from_millis(400);
+        if self.active.is_none() {
+            let due = |t: &Option<Instant>| t.is_some_and(|t| t.elapsed() >= settle);
+            if due(&self.profile_dirty_at) || due(&self.cfg_dirty_at) {
+                self.flush_settings();
+            }
+        }
+        if self.profile_dirty_at.is_some() || self.cfg_dirty_at.is_some() {
+            wake = Some(wake.map_or(settle, |w| w.min(settle)));
+        }
+        if self.updater.busy() {
+            wake = Some(wake.map_or(Duration::from_millis(500), |w| {
+                w.min(Duration::from_millis(500))
+            }));
+        }
         let waiting_for_lesson = self.active.is_none()
             && matches!(
                 self.screen,
@@ -548,7 +824,7 @@ impl App {
             PausedAction::Restart => {
                 if let Some(a) = self.active.as_mut() {
                     // The abandoned attempt is discarded (decision D16).
-                    a.run = LessonRun::new(&a.lesson.text, self.cfg.client.stop_on_error);
+                    a.run = LessonRun::new(&a.lesson.text, self.profile.error_mode);
                     a.origin = Instant::now();
                     #[cfg(all(target_os = "linux", feature = "evdev-capture"))]
                     {
@@ -590,25 +866,21 @@ impl App {
         if self.theme_applied.is_none() {
             theme::install_fonts(ctx);
         }
-        if self.theme_applied.as_deref() != Some(self.cfg.client.theme.as_str()) {
-            self.palette = theme::palette(&self.cfg.client.theme);
+        if self.theme_applied.as_deref() != Some(self.profile.theme.as_str()) {
+            self.palette = theme::palette(&self.profile.theme);
             theme::apply(ctx, &self.palette);
-            self.theme_applied = Some(self.cfg.client.theme.clone());
+            self.theme_applied = Some(self.profile.theme.clone());
         }
     }
 
-    pub fn save_settings(&mut self) {
-        match self.cfg.save() {
-            Ok(p) => {
-                self.settings_dirty = false;
-                self.toast(format!("Settings saved to {}", p.display()));
-            }
-            Err(e) => self.toast(format!("Could not save settings: {e}")),
-        }
-    }
-
+    /// The engine writes each profile's report next to its database.
     pub fn report_path(&self) -> std::path::PathBuf {
-        self.cfg.data_dir().join("reports").join("index.html")
+        self.db_path()
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| self.cfg.data_dir())
+            .join("reports")
+            .join("index.html")
     }
 
     pub fn open_report(&mut self) {
@@ -624,6 +896,7 @@ impl App {
 
     pub fn shutdown(&mut self) {
         self.abandon_active();
+        self.flush_settings();
         self.engine.stop();
     }
 

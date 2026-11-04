@@ -112,12 +112,35 @@ impl Default for Engine {
     }
 }
 
+/// In-app update checks (decision D29).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Updates {
+    /// Look for a newer release on GitHub when the app starts.
+    pub check: bool,
+    /// `owner/name` of the repository releases come from.
+    pub repo: String,
+}
+
+impl Default for Updates {
+    fn default() -> Self {
+        Self {
+            check: true,
+            repo: "Zwe-Zwe/Qwertea".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub general: General,
+    /// Device settings. `theme`, `font_size`, `stop_on_error` and `live_wpm`
+    /// only seed a profile created by an upgrade from 1.0.x; each profile keeps
+    /// its own copy in its database (decision D28).
     pub client: Client,
     pub engine: Engine,
+    pub updates: Updates,
     /// Directory containing `config.toml`; relative paths resolve against it.
     #[serde(skip)]
     pub root: PathBuf,
@@ -199,8 +222,9 @@ impl Config {
             .join(format!("{}.toml", self.general.layout))
     }
 
-    /// Write the `[client]` and `[engine].autostart` settings back to the
-    /// config file, preserving everything else (including comments).
+    /// Write this computer's settings (`[client]` device settings,
+    /// `[engine].autostart`, `[updates].check`) back to the config file,
+    /// preserving everything else (including comments).
     pub fn save(&self) -> Result<PathBuf, String> {
         let path = self
             .path
@@ -224,21 +248,18 @@ pub fn update_toml(text: &str, cfg: &Config) -> Result<String, String> {
         table[key] = Item::Value(v);
     }
     let mut doc: DocumentMut = text.parse().map_err(|e| format!("config.toml: {e}"))?;
-    for section in ["client", "engine"] {
+    for section in ["client", "engine", "updates"] {
         if !doc.contains_key(section) {
             doc[section] = Item::Table(Table::new());
         }
     }
     let c = &cfg.client;
     let t = &mut doc["client"];
-    set(t, "font_size", c.font_size as f64);
-    set(t, "theme", c.theme.as_str());
-    set(t, "stop_on_error", c.stop_on_error);
     set(t, "present_mode", c.present_mode.as_str());
     set(t, "timestamp_source", c.timestamp_source.as_str());
     set(t, "keyboard_device", c.keyboard_device.as_str());
-    set(t, "live_wpm", c.live_wpm);
     set(&mut doc["engine"], "autostart", cfg.engine.autostart);
+    set(&mut doc["updates"], "check", cfg.updates.check);
     Ok(doc.to_string())
 }
 
@@ -369,15 +390,16 @@ mod tests {
     fn saving_keeps_comments_and_other_sections() {
         let text = include_str!("../../config.toml");
         let mut cfg = Config::parse(text, PathBuf::from(".")).unwrap();
-        cfg.client.font_size = 32.0;
-        cfg.client.theme = "light".into();
-        cfg.client.stop_on_error = true;
+        cfg.client.present_mode = PresentModePref::Fifo;
+        cfg.engine.autostart = false;
+        cfg.updates.check = false;
         let out = update_toml(text, &cfg).unwrap();
         assert!(out.contains("# mailbox | immediate | fifo"));
         assert!(out.contains("weight_error = 0.6"));
         let back = Config::parse(&out, PathBuf::from(".")).unwrap();
-        assert_eq!(back.client.font_size, 32.0);
-        assert_eq!(back.client.theme, "light");
-        assert!(back.client.stop_on_error);
+        assert_eq!(back.client.present_mode, PresentModePref::Fifo);
+        assert!(!back.engine.autostart);
+        assert!(!back.updates.check);
+        assert_eq!(back.updates.repo, "Zwe-Zwe/Qwertea");
     }
 }

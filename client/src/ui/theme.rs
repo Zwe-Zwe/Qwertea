@@ -113,6 +113,21 @@ pub fn bold() -> FontFamily {
     FontFamily::Name("bold".into())
 }
 
+/// Font family for the "Hack" lesson font.
+pub fn hack_family() -> FontFamily {
+    FontFamily::Name("hack".into())
+}
+
+/// The lesson text's font family for a profile setting.
+pub fn typing_family(f: crate::profile::TypingFont) -> FontFamily {
+    use crate::profile::TypingFont;
+    match f {
+        TypingFont::Atkinson => FontFamily::Monospace,
+        TypingFont::Hack => hack_family(),
+        TypingFont::Proportional => FontFamily::Proportional,
+    }
+}
+
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     let add = |fonts: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
@@ -140,6 +155,13 @@ pub fn install_fonts(ctx: &egui::Context) {
     prop.insert(0, "atkinson".to_owned());
     let mono = fonts.families.entry(FontFamily::Monospace).or_default();
     mono.insert(0, "atkinson-mono".to_owned());
+    // Hack ships with egui; offer it as an alternative lesson font.
+    let mut hack = vec![];
+    if fonts.font_data.contains_key("Hack") {
+        hack.push("Hack".to_owned());
+    }
+    hack.extend(fonts.families[&FontFamily::Monospace].clone());
+    fonts.families.insert(hack_family(), hack);
     let fallback: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
     let mut b = vec!["atkinson-bold".to_owned()];
     b.extend(fallback);

@@ -56,7 +56,7 @@ macro_rules! str_enum {
     };
 }
 str_enum!(CaretStyle { Underline => "underline", "Underline", Block => "block", "Block", Bar => "bar", "Bar" });
-str_enum!(LiveStats { Full => "full", "Full", Minimal => "minimal", "Time only", Hidden => "hidden", "Hidden" });
+str_enum!(LiveStats { Full => "full", "Full", Minimal => "minimal", "Time & words", Hidden => "hidden", "Hidden" });
 str_enum!(TypingFont {
     Atkinson => "atkinson", "Atkinson Mono",
     Hack => "hack", "Hack",
@@ -157,7 +157,9 @@ impl ProfileSettings {
                 "name" if !v.trim().is_empty() => self.name = v.trim().to_string(),
                 "theme" => self.theme = v.clone(),
                 "font_size" => self.font_size = v.parse().unwrap_or(self.font_size),
-                "typing_font" => self.typing_font = TypingFont::parse(v).unwrap_or(self.typing_font),
+                "typing_font" => {
+                    self.typing_font = TypingFont::parse(v).unwrap_or(self.typing_font)
+                }
                 "caret" => self.caret = CaretStyle::parse(v).unwrap_or(self.caret),
                 "smooth_caret" => self.smooth_caret = parse_bool(v).unwrap_or(self.smooth_caret),
                 "live_stats" => self.live_stats = LiveStats::parse(v).unwrap_or(self.live_stats),
@@ -193,7 +195,11 @@ impl ProfileSettings {
         if pairs.is_empty() {
             s.theme = legacy.theme.clone();
             s.font_size = legacy.font_size;
-            s.live_stats = if legacy.live_wpm { LiveStats::Full } else { LiveStats::Minimal };
+            s.live_stats = if legacy.live_wpm {
+                LiveStats::Full
+            } else {
+                LiveStats::Minimal
+            };
             s.error_mode = legacy.stop_on_error.into();
             s.save(conn)?;
         } else {
@@ -282,7 +288,11 @@ impl Registry {
             .unwrap_or_else(|_| db.to_string_lossy().into_owned());
         let r = Registry {
             active: "default".into(),
-            profiles: vec![ProfileEntry { id: "default".into(), name: "Me".into(), db: rel }],
+            profiles: vec![ProfileEntry {
+                id: "default".into(),
+                name: "Me".into(),
+                db: rel,
+            }],
             root,
         };
         let _ = r.save();
@@ -319,7 +329,9 @@ impl Registry {
         let base = slug(name);
         let mut id = base.clone();
         let mut n = 2;
-        while self.profiles.iter().any(|p| p.id == id) || self.root.join("profiles").join(&id).exists() {
+        while self.profiles.iter().any(|p| p.id == id)
+            || self.root.join("profiles").join(&id).exists()
+        {
             id = format!("{base}-{n}");
             n += 1;
         }
@@ -380,7 +392,11 @@ impl Registry {
             return Err(format!("{} is not a Qwertea profile", file.display()));
         }
         let name: String = conn
-            .query_row("SELECT value FROM profile_settings WHERE key='name'", [], |r| r.get(0))
+            .query_row(
+                "SELECT value FROM profile_settings WHERE key='name'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap_or_else(|_| {
                 file.file_stem()
                     .map(|s| s.to_string_lossy().into_owned())
@@ -489,7 +505,12 @@ mod tests {
     #[test]
     fn streaks_count_consecutive_days() {
         let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
-        let days = [d("2026-11-01"), d("2026-11-02"), d("2026-11-03"), d("2026-10-30")];
+        let days = [
+            d("2026-11-01"),
+            d("2026-11-02"),
+            d("2026-11-03"),
+            d("2026-10-30"),
+        ];
         assert_eq!(streak(&days, d("2026-11-03")), 3);
         assert_eq!(streak(&days, d("2026-11-04")), 3, "today not practised yet");
         assert_eq!(streak(&days, d("2026-11-05")), 0);
@@ -509,8 +530,10 @@ mod tests {
         let db = reg.db_path(&p);
         assert!(db.starts_with(dir.path().join("profiles/mya-mya")));
         let conn = crate::db::open(&db).unwrap();
-        let mut s = ProfileSettings::default();
-        s.name = "Mya Mya".into();
+        let s = ProfileSettings {
+            name: "Mya Mya".into(),
+            ..ProfileSettings::default()
+        };
         s.save(&conn).unwrap();
         // Export and import as a new profile.
         let file = dir.path().join("export.qwertea");

@@ -198,7 +198,8 @@ pub fn compute(text: &str, events: &[KeyEvent]) -> LessonStats {
         }
     }
     s.missed_keys = missed.into_iter().collect();
-    s.missed_keys.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    s.missed_keys
+        .sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
     if let (Some(&(t0, _)), Some(&(t1, _))) = (strokes.first(), strokes.last()) {
         // Time runs from the first keystroke to the last (decision D27).
@@ -456,23 +457,43 @@ mod tests {
             } else {
                 KeyKind::Other
             };
-            r.on_key(e.t_ns, KeyInput { scancode: e.scancode, is_down: e.is_down, kind });
+            r.on_key(
+                e.t_ns,
+                KeyInput {
+                    scancode: e.scancode,
+                    is_down: e.is_down,
+                    kind,
+                },
+            );
         }
         let x = &g.expected;
         let live_wpm = r.live_wpm(u64::MAX);
         let live_secs = r.elapsed_ns(u64::MAX) as f64 / 1e9;
         let s = compute(&g.text, r.events());
-        assert!((s.seconds - x.seconds).abs() < 1e-9, "seconds {}", s.seconds);
+        assert!(
+            (s.seconds - x.seconds).abs() < 1e-9,
+            "seconds {}",
+            s.seconds
+        );
         assert!((s.wpm - x.wpm).abs() < 1e-9, "wpm {}", s.wpm);
         assert!((s.raw_wpm - x.raw_wpm).abs() < 1e-9, "raw {}", s.raw_wpm);
         assert!((s.accuracy - x.accuracy).abs() < 1e-12);
         assert_eq!(
-            (s.correct, s.errors, s.keystrokes, s.backspaces, s.word_count),
+            (
+                s.correct,
+                s.errors,
+                s.keystrokes,
+                s.backspaces,
+                s.word_count
+            ),
             (x.correct, x.errors, x.keystrokes, x.backspaces, x.words)
         );
         // The live counter at the end equals the result screen.
         assert!((live_wpm - x.wpm).abs() < 1e-9, "live wpm {live_wpm}");
-        assert!((live_secs - x.seconds).abs() < 1e-9, "live secs {live_secs}");
+        assert!(
+            (live_secs - x.seconds).abs() < 1e-9,
+            "live secs {live_secs}"
+        );
         assert_eq!(r.word_progress(), (2, 2));
     }
 
@@ -482,12 +503,29 @@ mod tests {
         let mut t = 0;
         for c in ['a', 'x', 'x', 'b'] {
             t += 100 * MS;
-            r.on_key(t, KeyInput { scancode: 1, is_down: true, kind: KeyKind::Text(c) });
-            r.on_key(t + 10 * MS, KeyInput { scancode: 1, is_down: false, kind: KeyKind::Text(c) });
+            r.on_key(
+                t,
+                KeyInput {
+                    scancode: 1,
+                    is_down: true,
+                    kind: KeyKind::Text(c),
+                },
+            );
+            r.on_key(
+                t + 10 * MS,
+                KeyInput {
+                    scancode: 1,
+                    is_down: false,
+                    kind: KeyKind::Text(c),
+                },
+            );
         }
         let s = compute("ab", r.events());
         // Both positions end correct; the blocked 'x' keys are slips, not typed text.
-        assert_eq!((s.correct, s.incorrect, s.errors, s.keystrokes), (2, 0, 1, 4));
+        assert_eq!(
+            (s.correct, s.incorrect, s.errors, s.keystrokes),
+            (2, 0, 1, 4)
+        );
         assert!((s.wpm - r.live_wpm(u64::MAX)).abs() < 1e-9);
     }
 

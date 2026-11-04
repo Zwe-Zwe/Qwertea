@@ -61,11 +61,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 metrics(app, ui, full);
                 ui.add_space(GAP);
                 let h = &app.history;
-                let wpm = smooth(&h.lessons.iter().map(|l| (l.0 as f64, l.1)).collect::<Vec<_>>());
+                let wpm = smooth(&h.lessons.iter().map(|l| (l.n as f64, l.wpm)).collect::<Vec<_>>());
                 let acc = smooth(
                     &h.lessons
                         .iter()
-                        .map(|l| (l.0 as f64, 100.0 * l.2))
+                        .map(|l| (l.n as f64, 100.0 * l.accuracy))
                         .collect::<Vec<_>>(),
                 );
                 let trend = |ui: &mut Ui, w: f32, chart_h: f32, min_h: f32, speed: bool| {
@@ -132,7 +132,7 @@ fn metrics(app: &App, ui: &mut Ui, full: f32) {
     let p = app.palette;
     let h = &app.history;
     let recent = h.recent(10);
-    let avg = |f: fn(&(usize, f64, f64, f64, String)) -> f64| {
+    let avg = |f: fn(&crate::app::HistLesson) -> f64| {
         (!recent.is_empty()).then(|| recent.iter().map(f).sum::<f64>() / recent.len() as f64)
     };
     let dash = || "–".to_string();
@@ -145,12 +145,12 @@ fn metrics(app: &App, ui: &mut Ui, full: f32) {
         ),
         (
             "last 10",
-            avg(|l| l.1).map_or_else(dash, |v| format!("{v:.0}")),
+            avg(|l| l.wpm).map_or_else(dash, |v| format!("{v:.0}")),
             "wpm",
         ),
         (
             "accuracy",
-            avg(|l| 100.0 * l.2).map_or_else(dash, |v| format!("{v:.1}")),
+            avg(|l| 100.0 * l.accuracy).map_or_else(dash, |v| format!("{v:.1}")),
             "%",
         ),
         (

@@ -12,6 +12,8 @@ pub mod gfx;
 pub mod layout;
 pub mod profile;
 pub mod session;
+pub mod sound;
 pub mod stats;
 pub mod timing;
 pub mod ui;
+pub mod update;

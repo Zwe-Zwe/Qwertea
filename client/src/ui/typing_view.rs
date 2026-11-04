@@ -8,6 +8,7 @@
 
 use super::widgets::{eyebrow, muted, strong, target_chip};
 use crate::app::{App, PausedAction};
+use crate::profile::{CaretStyle, LiveStats};
 use crate::session::{CharState, RunState};
 use egui::text::{CCursor, LayoutJob, TextFormat};
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Rect, RichText, Stroke, Ui};
@@ -44,8 +45,11 @@ fn target_mask(target: &[char], items: &[String]) -> Vec<bool> {
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     let p = app.palette;
-    let font_size = app.cfg.client.font_size.clamp(14.0, 64.0);
-    let live_wpm = app.cfg.client.live_wpm;
+    let font_size = app.profile.font_size.clamp(14.0, 64.0);
+    let live_stats = app.profile.live_stats;
+    let caret_style = app.profile.caret;
+    let smooth_caret = app.profile.smooth_caret;
+    let family = super::theme::typing_family(app.profile.typing_font);
     let Some(a) = app.active.as_ref() else { return };
     let run = &a.run;
     let now_ns = a.origin.elapsed().as_nanos() as u64;
@@ -63,7 +67,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let text_w = sheet_w - 2.0 * pad.x;
 
     // ---------------------------------------------------------------- layout the text
-    let font = FontId::monospace(font_size);
+    let font = FontId::new(font_size, family);
     let mut job = LayoutJob {
         wrap: egui::text::TextWrapping {
             max_width: text_w,
@@ -212,7 +216,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     let clip = text_rect.expand2(vec2(6.0, 4.0));
     let tp = ui.painter_at(clip);
-    // Caret: soft cell highlight + underline on the character to type next.
+    // Caret on the character to type next, in the profile's style.
     if state != RunState::Finished {
         let c = caret.translate(origin.to_vec2());
         let n = caret_next.translate(origin.to_vec2());
@@ -221,24 +225,51 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         } else {
             font_size * 0.6
         };
+        let mut x = c.min.x;
+        let mut cw = w;
+        if smooth_caret {
+            // Glide along a line; jump straight to a new line (one
+            // animation per row, so wrapping never sweeps across the text).
+            let ctx = ui.ctx();
+            let id = egui::Id::unique(("caret", caret_row));
+            x = ctx.animate_value_with_time(id.with("x"), x, 0.07);
+            cw = ctx.animate_value_with_time(id.with("w"), w, 0.07);
+        }
         let cell = Rect::from_min_size(
-            pos2(c.min.x - 1.0, c.min.y + line_h * 0.12),
-            vec2(w + 2.0, line_h * 0.8),
+            pos2(x - 1.0, c.min.y + line_h * 0.12),
+            vec2(cw + 2.0, line_h * 0.8),
         );
         let color = if a.run.blocked_error {
             p.error
         } else {
             p.accent
         };
-        tp.rect_filled(cell, CornerRadius::same(4), color.gamma_multiply(0.14));
-        tp.rect_filled(
-            Rect::from_min_size(
-                pos2(cell.left(), cell.bottom() - 2.5),
-                vec2(cell.width(), 3.0),
-            ),
-            CornerRadius::same(2),
-            color,
-        );
+        match caret_style {
+            CaretStyle::Underline => {
+                tp.rect_filled(cell, CornerRadius::same(4), color.gamma_multiply(0.14));
+                tp.rect_filled(
+                    Rect::from_min_size(
+                        pos2(cell.left(), cell.bottom() - 2.5),
+                        vec2(cell.width(), 3.0),
+                    ),
+                    CornerRadius::same(2),
+                    color,
+                );
+            }
+            CaretStyle::Block => {
+                tp.rect_filled(cell, CornerRadius::same(4), color.gamma_multiply(0.42));
+            }
+            CaretStyle::Bar => {
+                tp.rect_filled(
+                    Rect::from_min_size(
+                        pos2(cell.left() - 0.5, cell.top()),
+                        vec2(2.5, cell.height()),
+                    ),
+                    CornerRadius::same(1),
+                    color,
+                );
+            }
+        }
     }
     tp.galley(origin, galley.clone(), Color32::WHITE);
     if state == RunState::Paused {
@@ -253,7 +284,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     };
     let summary = run.summary();
     let mut items: Vec<(&str, String)> = Vec::new();
-    if live_wpm {
+    if live_stats == LiveStats::Full {
         items.push((
             "speed",
             if started && secs > 1.0 {
@@ -263,19 +294,23 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             },
         ));
     }
-    items.push((
-        "accuracy",
-        if started {
-            format!("{:.0}%", 100.0 * summary.accuracy)
-        } else {
-            "–".into()
-        },
-    ));
-    items.push(("time", super::clock(secs)));
-    let (words_done, words_total) = run.word_progress();
-    items.push(("words", format!("{words_done}/{words_total}")));
+    if live_stats == LiveStats::Full {
+        items.push((
+            "accuracy",
+            if started {
+                format!("{:.0}%", 100.0 * summary.accuracy)
+            } else {
+                "–".into()
+            },
+        ));
+    }
+    if live_stats != LiveStats::Hidden {
+        items.push(("time", super::clock(secs)));
+        let (words_done, words_total) = run.word_progress();
+        items.push(("words", format!("{words_done}/{words_total}")));
+    }
     let strip_y = sheet.bottom() + 26.0;
-    let slot = sheet_w / items.len() as f32;
+    let slot = sheet_w / items.len().max(1) as f32;
     for (i, (label, value)) in items.iter().enumerate() {
         let x = sheet.left() + slot * (i as f32 + 0.5);
         painter.text(

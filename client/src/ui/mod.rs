@@ -2,6 +2,7 @@
 //! disappears while typing so only the lesson remains.
 
 pub mod home;
+pub mod profile_view;
 pub mod settings;
 pub mod stats_view;
 pub mod summary;
@@ -11,7 +12,7 @@ pub mod widgets;
 
 use crate::app::{App, Screen};
 use egui::{pos2, vec2, Align2, CornerRadius, FontId, RichText, Sense, Ui};
-use widgets::{icon, logo, strong, Icon};
+use widgets::{avatar, icon, logo, strong, Icon};
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     app.apply_theme(ui.ctx());
@@ -59,6 +60,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             Screen::Summary => summary::show(app, ui),
             Screen::Stats => stats_view::show(app, ui),
             Screen::Settings => settings::show(app, ui),
+            Screen::Profile => profile_view::show(app, ui),
         });
     if let Some((msg, _)) = app.toast.clone() {
         egui::Area::new(egui::Id::unique("toast"))
@@ -120,7 +122,34 @@ fn sidebar(app: &mut App, ui: &mut Ui) {
             );
         });
     });
-    ui.add_space(28.0);
+    ui.add_space(22.0);
+    // Who is typing: click to open the profile screen.
+    let chip = ui.horizontal(|ui| {
+        avatar(ui, &p, &app.profile.name, 30.0);
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.label(RichText::new(&app.profile.name).size(14.5).color(p.text));
+            let today = crate::profile::today();
+            let mins = app.history.seconds_on(today) / 60.0;
+            ui.label(
+                RichText::new(format!("{mins:.0}/{} min today", app.profile.daily_minutes))
+                    .size(11.5)
+                    .color(p.sub),
+            );
+        });
+    });
+    let chip = ui.interact(
+        chip.response.rect,
+        egui::Id::unique("profile_chip"),
+        Sense::click(),
+    );
+    if chip.clicked() {
+        app.refresh_history();
+        app.screen = Screen::Profile;
+    }
+    chip.on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("Profile, goals and switching");
+    ui.add_space(18.0);
     let practice = matches!(
         app.screen,
         Screen::Home | Screen::Intro | Screen::Summary | Screen::SittingDone
@@ -142,6 +171,16 @@ fn sidebar(app: &mut App, ui: &mut Ui) {
     if nav_item(
         ui,
         app,
+        "Profile",
+        Icon::Person,
+        app.screen == Screen::Profile,
+    ) {
+        app.refresh_history();
+        app.screen = Screen::Profile;
+    }
+    if nav_item(
+        ui,
+        app,
         "Settings",
         Icon::Sliders,
         app.screen == Screen::Settings,
@@ -157,6 +196,20 @@ fn sidebar(app: &mut App, ui: &mut Ui) {
                 .size(11.5)
                 .color(p.sub),
         );
+        if matches!(
+            app.updater.state(),
+            crate::update::State::Available { .. } | crate::update::State::Installed { .. }
+        ) {
+            let r = ui.add(
+                egui::Button::new(RichText::new("Update available").size(12.5).color(p.bg))
+                    .fill(p.accent2)
+                    .corner_radius(CornerRadius::same(8)),
+            );
+            if r.clicked() {
+                app.screen = Screen::Settings;
+            }
+            ui.add_space(4.0);
+        }
         let ok = app.engine.status.is_ok();
         let (color, text) = if ok {
             (p.good, "engine brewing")
