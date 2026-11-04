@@ -111,6 +111,56 @@ impl History {
     }
 }
 
+/// The live typing demo in Settings: try fonts, carets and sounds.
+pub struct Demo {
+    pub run: LessonRun,
+    pub origin: Instant,
+    pub mode: crate::session::ErrorMode,
+}
+
+impl Demo {
+    pub const TEXT: &'static str = "The quick brown fox jumps over the lazy dog. \
+        Pack my box with 5 dozen liquor jugs! (Sphinx of black quartz, judge my vow.)";
+
+    pub fn new(mode: crate::session::ErrorMode) -> Self {
+        Self {
+            run: LessonRun::new(Self::TEXT, mode),
+            origin: Instant::now(),
+            mode,
+        }
+    }
+
+    /// Feed one key (from egui input; the demo is not timed precisely).
+    pub fn key(&mut self, kind: KeyKind, sound: &KeySound, sound_on: bool) {
+        if self.run.state() == RunState::Finished {
+            *self = Self::new(self.mode);
+        }
+        let t = self.origin.elapsed().as_nanos() as u64;
+        let n = self.run.events().len();
+        let down = crate::session::KeyInput {
+            scancode: 0,
+            is_down: true,
+            kind,
+        };
+        self.run.on_key(t, down);
+        self.run.on_key(
+            t + 1,
+            crate::session::KeyInput {
+                is_down: false,
+                ..down
+            },
+        );
+        if sound_on && self.run.events().len() > n {
+            if let Some(ev) = self.run.events().get(n) {
+                let wrong = ev.produced_char.is_some()
+                    && (self.run.blocked_error
+                        || self.run.char_state(ev.target_idx as usize) == CharState::Wrong);
+                sound.click(wrong);
+            }
+        }
+    }
+}
+
 /// Text fields and confirmations on the profile screen.
 #[derive(Default)]
 pub struct ProfileUi {
@@ -130,6 +180,7 @@ pub struct App {
     pub profile_dirty_at: Option<Instant>,
     pub cfg_dirty_at: Option<Instant>,
     pub profile_ui: ProfileUi,
+    pub demo: Option<Demo>,
     pub sound: KeySound,
     pub updater: Updater,
     /// Start this program after quitting (restart after an update).
@@ -186,6 +237,7 @@ impl App {
             profile_dirty_at: None,
             cfg_dirty_at: None,
             profile_ui: ProfileUi::default(),
+            demo: None,
             sound: KeySound::off(),
             updater,
             restart_with: None,
@@ -404,7 +456,9 @@ impl App {
 
     /// Open or close the sound output to match the profile setting.
     pub fn sync_sound(&mut self) {
-        if self.profile.sound {
+        self.sound
+            .configure(self.profile.sound, self.profile.sound_volume);
+        if self.profile.sound != crate::sound::SoundStyle::Off {
             self.sound.enable();
         } else {
             self.sound.disable();
@@ -643,7 +697,11 @@ impl App {
         let was_paused = a.run.state() == RunState::Paused;
         let n_before = a.run.events().len();
         a.run.on_key(t, input);
-        if self.profile.sound && input.is_down && !was_paused && a.run.events().len() > n_before {
+        if self.profile.sound != crate::sound::SoundStyle::Off
+            && input.is_down
+            && !was_paused
+            && a.run.events().len() > n_before
+        {
             if let Some(ev) = a.run.events().last() {
                 if ev.produced_char.is_some() || ev.is_backspace {
                     let wrong = ev.produced_char.is_some()

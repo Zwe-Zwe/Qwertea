@@ -113,20 +113,54 @@ pub fn bold() -> FontFamily {
     FontFamily::Name("bold".into())
 }
 
-/// Font family for the "Hack" lesson font.
-pub fn hack_family() -> FontFamily {
-    FontFamily::Name("hack".into())
-}
-
-/// The lesson text's font family for a profile setting.
+/// The lesson text's font family for a profile setting. Every typing font
+/// has its own named family, falling back to Atkinson for missing glyphs.
 pub fn typing_family(f: crate::profile::TypingFont) -> FontFamily {
     use crate::profile::TypingFont;
     match f {
         TypingFont::Atkinson => FontFamily::Monospace,
-        TypingFont::Hack => hack_family(),
         TypingFont::Proportional => FontFamily::Proportional,
+        other => FontFamily::Name(format!("typing-{}", other.key()).into()),
     }
 }
+
+/// Embedded typing fonts: (setting, font data name, bytes). Hack ships with egui.
+const TYPING_FONTS: &[(crate::profile::TypingFont, &str, &[u8])] = {
+    use crate::profile::TypingFont as F;
+    &[
+        (
+            F::JetBrains,
+            "jetbrains-mono",
+            include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf"),
+        ),
+        (
+            F::Fira,
+            "fira-code",
+            include_bytes!("../../assets/fonts/FiraCode-Regular.ttf"),
+        ),
+        (
+            F::Cascadia,
+            "cascadia-mono",
+            include_bytes!("../../assets/fonts/CascadiaMono.ttf"),
+        ),
+        (
+            F::UbuntuMono,
+            "ubuntu-mono",
+            include_bytes!("../../assets/fonts/UbuntuMono.ttf"),
+        ),
+        (
+            F::Plex,
+            "ibm-plex-mono",
+            include_bytes!("../../assets/fonts/IBMPlexMono-Regular.ttf"),
+        ),
+        (
+            F::Ubuntu,
+            "ubuntu",
+            include_bytes!("../../assets/fonts/Ubuntu.ttf"),
+        ),
+        (F::Hack, "Hack", &[]),
+    ]
+};
 
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
@@ -155,13 +189,27 @@ pub fn install_fonts(ctx: &egui::Context) {
     prop.insert(0, "atkinson".to_owned());
     let mono = fonts.families.entry(FontFamily::Monospace).or_default();
     mono.insert(0, "atkinson-mono".to_owned());
-    // Hack ships with egui; offer it as an alternative lesson font.
-    let mut hack = vec![];
-    if fonts.font_data.contains_key("Hack") {
-        hack.push("Hack".to_owned());
+    // One family per typing font, with the usual fallbacks behind it.
+    let mono_fallback = fonts.families[&FontFamily::Monospace].clone();
+    let prop_fallback = fonts.families[&FontFamily::Proportional].clone();
+    for (font, name, bytes) in TYPING_FONTS {
+        if !bytes.is_empty() {
+            add(&mut fonts, name, bytes);
+        }
+        // A family must exist even if its font is missing, or egui panics.
+        let mut chain: Vec<String> = fonts
+            .font_data
+            .contains_key(*name)
+            .then(|| name.to_string())
+            .into_iter()
+            .collect();
+        chain.extend(if font.is_mono() {
+            mono_fallback.clone()
+        } else {
+            prop_fallback.clone()
+        });
+        fonts.families.insert(typing_family(*font), chain);
     }
-    hack.extend(fonts.families[&FontFamily::Monospace].clone());
-    fonts.families.insert(hack_family(), hack);
     let fallback: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
     let mut b = vec!["atkinson-bold".to_owned()];
     b.extend(fallback);

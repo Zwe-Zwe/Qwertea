@@ -9,6 +9,7 @@
 
 use crate::config::Config;
 use crate::session::ErrorMode;
+pub use crate::sound::SoundStyle;
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -33,8 +34,14 @@ pub enum LiveStats {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypingFont {
     Atkinson,
+    JetBrains,
+    Fira,
+    Cascadia,
+    UbuntuMono,
+    Plex,
     Hack,
     Proportional,
+    Ubuntu,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,9 +66,22 @@ str_enum!(CaretStyle { Underline => "underline", "Underline", Block => "block", 
 str_enum!(LiveStats { Full => "full", "Full", Minimal => "minimal", "Time & words", Hidden => "hidden", "Hidden" });
 str_enum!(TypingFont {
     Atkinson => "atkinson", "Atkinson Mono",
+    JetBrains => "jetbrains", "JetBrains Mono",
+    Fira => "fira", "Fira Code",
+    Cascadia => "cascadia", "Cascadia Mono",
+    UbuntuMono => "ubuntu-mono", "Ubuntu Mono",
+    Plex => "plex", "IBM Plex Mono",
     Hack => "hack", "Hack",
-    Proportional => "proportional", "Atkinson (proportional)",
+    Proportional => "proportional", "Atkinson",
+    Ubuntu => "ubuntu", "Ubuntu",
 });
+
+impl TypingFont {
+    /// Monospaced fonts keep every column aligned; the others read like a book.
+    pub fn is_mono(self) -> bool {
+        !matches!(self, Self::Proportional | Self::Ubuntu)
+    }
+}
 str_enum!(LessonLength { Short => "short", "Short", Medium => "medium", "Medium", Long => "long", "Long", Custom => "custom", "Custom" });
 str_enum!(ErrorMode {
     Normal => "normal", "Move on",
@@ -80,7 +100,9 @@ pub struct ProfileSettings {
     pub smooth_caret: bool,
     pub live_stats: LiveStats,
     pub error_mode: ErrorMode,
-    pub sound: bool,
+    pub sound: SoundStyle,
+    /// Key sound volume, 0–100.
+    pub sound_volume: u32,
     pub lesson_length: LessonLength,
     pub lesson_chars: u32,
     pub capitals: bool,
@@ -102,7 +124,8 @@ impl Default for ProfileSettings {
             smooth_caret: false,
             live_stats: LiveStats::Full,
             error_mode: ErrorMode::Normal,
-            sound: false,
+            sound: SoundStyle::Off,
+            sound_volume: 70,
             lesson_length: LessonLength::Medium,
             lesson_chars: 220,
             capitals: true,
@@ -138,7 +161,8 @@ impl ProfileSettings {
             ("smooth_caret", b(self.smooth_caret)),
             ("live_stats", self.live_stats.key().into()),
             ("error_mode", self.error_mode.key().into()),
-            ("sound", b(self.sound)),
+            ("sound", self.sound.key().into()),
+            ("sound_volume", self.sound_volume.to_string()),
             ("lesson_length", self.lesson_length.key().into()),
             ("lesson_chars", self.lesson_chars.to_string()),
             ("capitals", b(self.capitals)),
@@ -164,7 +188,8 @@ impl ProfileSettings {
                 "smooth_caret" => self.smooth_caret = parse_bool(v).unwrap_or(self.smooth_caret),
                 "live_stats" => self.live_stats = LiveStats::parse(v).unwrap_or(self.live_stats),
                 "error_mode" => self.error_mode = ErrorMode::parse(v).unwrap_or(self.error_mode),
-                "sound" => self.sound = parse_bool(v).unwrap_or(self.sound),
+                "sound" => self.sound = SoundStyle::parse(v).unwrap_or(self.sound),
+                "sound_volume" => self.sound_volume = v.parse().unwrap_or(self.sound_volume),
                 "lesson_length" => {
                     self.lesson_length = LessonLength::parse(v).unwrap_or(self.lesson_length)
                 }
@@ -181,6 +206,7 @@ impl ProfileSettings {
         self.font_size = self.font_size.clamp(14.0, 64.0);
         self.lesson_chars = self.lesson_chars.clamp(40, 2000);
         self.goal_accuracy = self.goal_accuracy.clamp(50, 100);
+        self.sound_volume = self.sound_volume.min(100);
     }
 
     /// Load from the profile database. A profile without stored settings (a
@@ -497,6 +523,9 @@ mod tests {
         s.lesson_chars = 500;
         s.numbers = true;
         s.error_mode = ErrorMode::StrictWord;
+        s.typing_font = TypingFont::JetBrains;
+        s.sound = SoundStyle::Thock;
+        s.sound_volume = 35;
         s.save(&c).unwrap();
         let back = ProfileSettings::load(&c, &crate::config::Client::default()).unwrap();
         assert_eq!(back, s);

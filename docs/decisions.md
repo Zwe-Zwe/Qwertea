@@ -194,4 +194,22 @@ Non-technical users should not need a terminal to update.
 - **Anything else:** a link to the release page. Self-contained installers that can replace themselves are planned.
 
 ## D30: Key sounds (1.0.2)
-Optional (off by default) and per profile. The key handler only increments an atomic counter (one for correct keys, one for mistakes). The audio callback (cpal) notices the change and synthesises a 35 ms click: a decaying tone plus a short noise burst, lower for a mistake. Nothing on the hot path allocates, locks or calls the audio system, so key timing is unaffected. The output stream is opened when sounds are switched on, never while typing. Builds without the default `sound` feature have no audio dependency.
+Optional (off by default) and per profile, in five synthesised styles with a volume control (`sound`, `sound_volume`; the 1.0.2 preview's `true`/`false` map to soft click/off). The key handler only increments an atomic counter (one for correct keys, one for mistakes). The audio callback (cpal) notices the change, reads the style and volume from atomics, and synthesises 35–70 ms of sound. Each style has its own variant for a mistake:
+- **soft click:** a decaying tone and a noise tick;
+- **typewriter:** a noisy strike, metallic partials and a low body;
+- **deep thock:** a low thud whose pitch falls;
+- **bubble pop:** a rising sine sweep (falling for a mistake);
+- **retro blip:** a short square wave.
+
+The styles are synthesised rather than recorded, so there are no audio files to license or ship. `cargo test --lib sound -- --ignored`, with `QWERTEA_SOUND_DIR` set, writes each style to a WAV file for listening. Nothing on the hot path allocates, locks or calls the audio system, so key timing is unaffected. The output stream is opened when sounds are switched on, never while typing. Builds without the default `sound` feature have no audio dependency.
+
+## D31: Typing fonts and the live demo (1.0.2)
+- **Fonts:** nine typing fonts, all free to redistribute and embedded in the binary, so they work offline and look the same everywhere:
+  - Atkinson Hyperlegible Mono (default) and Atkinson Hyperlegible;
+  - JetBrains Mono, Fira Code, Cascadia Mono, IBM Plex Mono (SIL OFL);
+  - Ubuntu Mono and Ubuntu (Ubuntu Font Licence);
+  - Hack (shipped with egui).
+
+  Each font gets its own egui family, with Atkinson and egui's fonts as fallbacks for missing glyphs. The files are the official releases as packaged by Debian/Ubuntu. Their copyright files are in `client/assets/fonts/licenses/` and installed with the Arch package. Ubuntu and Ubuntu Mono are variable fonts, rendered at their default (regular) instance. Embedding adds about 2.3 MB to the binary.
+- **Font cards** preview each font in its own typeface.
+- **Live demo:** a two-line sheet under the font cards. Click it and type: it uses the open profile's font, size, caret, smooth caret, mistakes mode and key sound, and shows WPM and accuracy at the end. It is drawn by the same function as the real typing screen (`typing_view::draw_text`), so what you see is what lessons look like. Demo keys come from egui's input events and are not stored or analysed. Esc leaves the demo.

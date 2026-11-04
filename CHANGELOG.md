@@ -14,14 +14,20 @@ All notable changes to Qwertea are listed here. The project follows
     profile as one `.qwertea` file.
   - Your existing data becomes the first profile.
 - **Typing settings,** saved to the profile:
-  - typing font: Atkinson Mono, Hack or proportional;
+  - nine typing fonts: Atkinson Mono, JetBrains Mono, Fira Code, Cascadia
+    Mono, Ubuntu Mono, IBM Plex Mono, Hack, Atkinson and Ubuntu. Each font
+    card previews itself;
+  - a **live demo** next to the font options: click it and type to try your
+    font, size, caret, mistakes mode and key sound before a real lesson;
   - caret: underline, block or bar, with an optional smooth caret;
   - live stats: full, time and words, or hidden;
   - mistakes: move on, stop on error, or fix before the next word;
   - lesson length: short, medium, long or a custom number of characters;
   - capital letters, punctuation and numbers on or off. New lessons follow
     within seconds, and calibration is unchanged.
-- **Key sounds** (optional): a soft click per key, lower for a mistake.
+- **Key sounds** (optional): soft click, typewriter, deep thock, bubble pop
+  or retro blip. Each has its own sound for a mistake, and there is a volume
+  control. Choosing a sound plays a preview.
 - **In-app updates.** Qwertea checks GitHub for a newer version at start-up.
   - A source install updates itself with one click, then restarts.
   - An Arch package install gets the command to copy and a link to the

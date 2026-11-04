@@ -6,10 +6,11 @@
 //! Keys never reach egui here; they go straight to `LessonRun` in the key
 //! handler. This function only draws (and handles the pause menu's buttons).
 
+use super::theme::Palette;
 use super::widgets::{eyebrow, muted, strong, target_chip};
 use crate::app::{App, PausedAction};
 use crate::profile::{CaretStyle, LiveStats};
-use crate::session::{CharState, RunState};
+use crate::session::{CharState, LessonRun, RunState};
 use egui::text::{CCursor, LayoutJob, TextFormat};
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Rect, RichText, Stroke, Ui};
 
@@ -66,68 +67,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let pad = vec2(36.0, 30.0);
     let text_w = sheet_w - 2.0 * pad.x;
 
-    // ---------------------------------------------------------------- layout the text
-    let font = FontId::new(font_size, family);
-    let mut job = LayoutJob {
-        wrap: egui::text::TextWrapping {
-            max_width: text_w,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let fmt_for = |st: CharState, is_target: bool, is_space: bool| -> TextFormat {
-        let mut f = TextFormat::simple(font.clone(), p.sub);
-        f.line_height = Some(font_size * 1.55);
-        match st {
-            CharState::Pending if is_target => f.color = p.accent2,
-            CharState::Pending => {}
-            CharState::Correct => f.color = p.text,
-            CharState::Wrong => {
-                f.color = p.error;
-                f.background = p.error_dim;
-                if is_space {
-                    f.underline = Stroke::new(2.0, p.error);
-                }
-            }
-        }
-        f
-    };
-    let mut disp_index = Vec::with_capacity(target.len() + 1);
-    let mut d = 0usize;
-    let mut buf = String::new();
-    let mut cur: Option<(CharState, bool, bool)> = None;
-    for (i, &c) in target.iter().enumerate() {
-        let st = run.char_state(i);
-        let key = (st, mask[i], c == ' ');
-        let key = if st == CharState::Wrong {
-            key
-        } else {
-            (key.0, key.1, false)
-        };
-        if cur != Some(key) {
-            if let Some((s, t, sp)) = cur {
-                job.append(&buf, 0.0, fmt_for(s, t, sp));
-                buf.clear();
-            }
-            cur = Some(key);
-        }
-        disp_index.push(d);
-        let shown = display(c);
-        if shown.is_empty() {
-            buf.push(c);
-            d += 1;
-        } else {
-            buf.push_str(shown);
-            d += shown.chars().count();
-        }
-    }
-    if let Some((s, t, sp)) = cur {
-        job.append(&buf, 0.0, fmt_for(s, t, sp));
-    }
-    disp_index.push(d);
-    let galley = ui.fonts_mut(|f| f.layout_job(job));
     let line_h = font_size * 1.55;
     let text_h = line_h * VISIBLE_LINES as f32;
+    let look = TextLook {
+        font_size,
+        family,
+        caret: caret_style,
+        smooth: smooth_caret,
+    };
 
     // Sheet rectangle, a little above centre.
     let sheet_h = text_h + 2.0 * pad.y + 6.0;
@@ -138,21 +85,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let text_rect = Rect::from_min_size(sheet.min + pad + vec2(0.0, 6.0), vec2(text_w, text_h));
 
     let cursor = run.cursor();
-    let caret = galley.pos_from_cursor(CCursor::new(disp_index[cursor.min(target.len())]));
-    let caret_next =
-        galley.pos_from_cursor(CCursor::new(disp_index[(cursor + 1).min(target.len())]));
-    let caret_row = galley
-        .rows
-        .iter()
-        .position(|r| caret.center().y < r.rect().max.y)
-        .unwrap_or(0);
-    let first_row = caret_row.saturating_sub(1);
-    let scroll = galley
-        .rows
-        .get(first_row)
-        .map(|r| r.rect().min.y)
-        .unwrap_or(0.0);
-    let origin = text_rect.min - vec2(0.0, scroll);
 
     let painter = ui.painter().clone();
 
@@ -214,64 +146,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     done.set_width(edge.width() * progress);
     painter.rect_filled(done, CornerRadius::same(2), p.accent);
 
+    draw_text(ui, &p, run, &mask, text_rect, &look, "lesson");
     let clip = text_rect.expand2(vec2(6.0, 4.0));
     let tp = ui.painter_at(clip);
-    // Caret on the character to type next, in the profile's style.
-    if state != RunState::Finished {
-        let c = caret.translate(origin.to_vec2());
-        let n = caret_next.translate(origin.to_vec2());
-        let w = if (n.min.y - c.min.y).abs() < 1.0 && n.min.x > c.min.x {
-            n.min.x - c.min.x
-        } else {
-            font_size * 0.6
-        };
-        let mut x = c.min.x;
-        let mut cw = w;
-        if smooth_caret {
-            // Glide along a line; jump straight to a new line (one
-            // animation per row, so wrapping never sweeps across the text).
-            let ctx = ui.ctx();
-            let id = egui::Id::unique(("caret", caret_row));
-            x = ctx.animate_value_with_time(id.with("x"), x, 0.07);
-            cw = ctx.animate_value_with_time(id.with("w"), w, 0.07);
-        }
-        let cell = Rect::from_min_size(
-            pos2(x - 1.0, c.min.y + line_h * 0.12),
-            vec2(cw + 2.0, line_h * 0.8),
-        );
-        let color = if a.run.blocked_error {
-            p.error
-        } else {
-            p.accent
-        };
-        match caret_style {
-            CaretStyle::Underline => {
-                tp.rect_filled(cell, CornerRadius::same(4), color.gamma_multiply(0.14));
-                tp.rect_filled(
-                    Rect::from_min_size(
-                        pos2(cell.left(), cell.bottom() - 2.5),
-                        vec2(cell.width(), 3.0),
-                    ),
-                    CornerRadius::same(2),
-                    color,
-                );
-            }
-            CaretStyle::Block => {
-                tp.rect_filled(cell, CornerRadius::same(4), color.gamma_multiply(0.42));
-            }
-            CaretStyle::Bar => {
-                tp.rect_filled(
-                    Rect::from_min_size(
-                        pos2(cell.left() - 0.5, cell.top()),
-                        vec2(2.5, cell.height()),
-                    ),
-                    CornerRadius::same(1),
-                    color,
-                );
-            }
-        }
-    }
-    tp.galley(origin, galley.clone(), Color32::WHITE);
     if state == RunState::Paused {
         tp.rect_filled(clip, 0.0, p.panel);
     }
@@ -367,6 +244,164 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
     }
     let _ = eyebrow;
+}
+
+/// How lesson text is drawn: the profile's font, size and caret.
+pub struct TextLook {
+    pub font_size: f32,
+    pub family: egui::FontFamily,
+    pub caret: CaretStyle,
+    pub smooth: bool,
+}
+
+/// Draw `run`'s text inside `text_rect`: typed characters coloured by
+/// result, training targets tinted, and the caret in the chosen style. The
+/// view scrolls so the caret's line is the second visible one. Shared by the
+/// typing screen and the live demo in Settings, so both look the same.
+pub fn draw_text(
+    ui: &mut Ui,
+    p: &Palette,
+    run: &LessonRun,
+    mask: &[bool],
+    text_rect: Rect,
+    look: &TextLook,
+    salt: &str,
+) {
+    let p = *p;
+    let font_size = look.font_size;
+    let text_w = text_rect.width();
+    let target = run.target();
+    let state = run.state();
+    let font = FontId::new(font_size, look.family.clone());
+    let mut job = LayoutJob {
+        wrap: egui::text::TextWrapping {
+            max_width: text_w,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let fmt_for = |st: CharState, is_target: bool, is_space: bool| -> TextFormat {
+        let mut f = TextFormat::simple(font.clone(), p.sub);
+        f.line_height = Some(font_size * 1.55);
+        match st {
+            CharState::Pending if is_target => f.color = p.accent2,
+            CharState::Pending => {}
+            CharState::Correct => f.color = p.text,
+            CharState::Wrong => {
+                f.color = p.error;
+                f.background = p.error_dim;
+                if is_space {
+                    f.underline = Stroke::new(2.0, p.error);
+                }
+            }
+        }
+        f
+    };
+    let mut disp_index = Vec::with_capacity(target.len() + 1);
+    let mut d = 0usize;
+    let mut buf = String::new();
+    let mut cur: Option<(CharState, bool, bool)> = None;
+    for (i, &c) in target.iter().enumerate() {
+        let st = run.char_state(i);
+        let key = (st, mask[i], c == ' ');
+        let key = if st == CharState::Wrong {
+            key
+        } else {
+            (key.0, key.1, false)
+        };
+        if cur != Some(key) {
+            if let Some((s, t, sp)) = cur {
+                job.append(&buf, 0.0, fmt_for(s, t, sp));
+                buf.clear();
+            }
+            cur = Some(key);
+        }
+        disp_index.push(d);
+        let shown = display(c);
+        if shown.is_empty() {
+            buf.push(c);
+            d += 1;
+        } else {
+            buf.push_str(shown);
+            d += shown.chars().count();
+        }
+    }
+    if let Some((s, t, sp)) = cur {
+        job.append(&buf, 0.0, fmt_for(s, t, sp));
+    }
+    disp_index.push(d);
+    let galley = ui.fonts_mut(|f| f.layout_job(job));
+    let line_h = font_size * 1.55;
+    let cursor = run.cursor();
+    let caret = galley.pos_from_cursor(CCursor::new(disp_index[cursor.min(target.len())]));
+    let caret_next =
+        galley.pos_from_cursor(CCursor::new(disp_index[(cursor + 1).min(target.len())]));
+    let caret_row = galley
+        .rows
+        .iter()
+        .position(|r| caret.center().y < r.rect().max.y)
+        .unwrap_or(0);
+    let first_row = caret_row.saturating_sub(1);
+    let scroll = galley
+        .rows
+        .get(first_row)
+        .map(|r| r.rect().min.y)
+        .unwrap_or(0.0);
+    let origin = text_rect.min - vec2(0.0, scroll);
+    let clip = text_rect.expand2(vec2(6.0, 4.0));
+    let tp = ui.painter_at(clip);
+    // Caret on the character to type next, in the profile's style.
+    if state != RunState::Finished {
+        let c = caret.translate(origin.to_vec2());
+        let n = caret_next.translate(origin.to_vec2());
+        let w = if (n.min.y - c.min.y).abs() < 1.0 && n.min.x > c.min.x {
+            n.min.x - c.min.x
+        } else {
+            font_size * 0.6
+        };
+        let mut x = c.min.x;
+        let mut cw = w;
+        if look.smooth {
+            // Glide along a line; jump straight to a new line (one
+            // animation per row, so wrapping never sweeps across the text).
+            let ctx = ui.ctx();
+            let id = egui::Id::unique(("caret", salt, caret_row));
+            x = ctx.animate_value_with_time(id.with("x"), x, 0.07);
+            cw = ctx.animate_value_with_time(id.with("w"), w, 0.07);
+        }
+        let cell = Rect::from_min_size(
+            pos2(x - 1.0, c.min.y + line_h * 0.12),
+            vec2(cw + 2.0, line_h * 0.8),
+        );
+        let color = if run.blocked_error { p.error } else { p.accent };
+        match look.caret {
+            CaretStyle::Underline => {
+                tp.rect_filled(cell, CornerRadius::same(4), color.gamma_multiply(0.14));
+                tp.rect_filled(
+                    Rect::from_min_size(
+                        pos2(cell.left(), cell.bottom() - 2.5),
+                        vec2(cell.width(), 3.0),
+                    ),
+                    CornerRadius::same(2),
+                    color,
+                );
+            }
+            CaretStyle::Block => {
+                tp.rect_filled(cell, CornerRadius::same(4), color.gamma_multiply(0.42));
+            }
+            CaretStyle::Bar => {
+                tp.rect_filled(
+                    Rect::from_min_size(
+                        pos2(cell.left() - 0.5, cell.top()),
+                        vec2(2.5, cell.height()),
+                    ),
+                    CornerRadius::same(1),
+                    color,
+                );
+            }
+        }
+    }
+    tp.galley(origin, galley.clone(), Color32::WHITE);
 }
 
 #[cfg(test)]

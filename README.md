@@ -38,12 +38,12 @@ Everything runs locally. No accounts, no cloud, no telemetry.
 - **Accurate timing:** keystrokes are timestamped before the UI touches them, and kernel timestamps are optional on Linux. See [docs/timing-validation.md](docs/timing-validation.md).
 - **Profiles:** everyone on the computer gets their own progress, lessons, theme and settings. A daily practice goal and a streak; speed and accuracy goals; export a profile to one file and import it elsewhere.
 - **Typing your way** (per profile):
-  - three fonts, three caret styles and an optional smooth caret;
+  - nine fonts (JetBrains Mono, Fira Code, Cascadia Mono, Ubuntu Mono, IBM Plex Mono, Ubuntu and more), three caret styles and an optional smooth caret, all tried out in a live demo right in Settings;
   - live stats in full, time and words only, or hidden;
   - mistakes: move on, stop on error, or fix before the next word;
   - short, medium, long or custom lessons;
   - capitals, punctuation and numbers on or off;
-  - optional key sounds.
+  - optional key sounds in five styles (soft click, typewriter, deep thock, bubble pop, retro blip) with a volume control.
 - **Honest numbers:** the clock runs from your first keystroke to your last, with pauses excluded, and the live WPM equals the final result. See [D27](docs/decisions.md).
 - **Updates from inside the app:** Qwertea tells you when a new version is out. A source install updates itself with one click.
 - **Four tea themes** (Sencha, Chai, Earl Grey, Oolong) and Atkinson Hyperlegible type.
@@ -201,4 +201,4 @@ Your typing data lives on your computer and is never sent anywhere: in `~/.local
 
 ## Licence
 
-MIT. The bundled prose corpus is derived from public-domain Project Gutenberg books. The Atkinson Hyperlegible fonts (Braille Institute of America) are under the SIL Open Font License; see `client/assets/fonts/OFL.txt`.
+MIT. The bundled prose corpus is derived from public-domain Project Gutenberg books. The Atkinson Hyperlegible fonts (Braille Institute of America) are under the SIL Open Font License; see `client/assets/fonts/OFL.txt`. JetBrains Mono, Fira Code, Cascadia Mono and IBM Plex Mono are under the SIL Open Font License, and Ubuntu and Ubuntu Mono under the Ubuntu Font Licence; see `client/assets/fonts/licenses/`.

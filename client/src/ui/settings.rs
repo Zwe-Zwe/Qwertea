@@ -7,7 +7,7 @@ use super::theme::{Palette, THEMES};
 use super::widgets::{card, eyebrow, muted, primary_button, segmented, strong};
 use crate::app::App;
 use crate::config::{PresentModePref, TimestampSourceKind};
-use crate::profile::{CaretStyle, LessonLength, LiveStats, TypingFont};
+use crate::profile::{CaretStyle, LessonLength, LiveStats, SoundStyle, TypingFont};
 use crate::session::ErrorMode;
 use crate::update::{InstallKind, State as UpdateState};
 use egui::{
@@ -122,12 +122,32 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                             }
                         }
                     });
-                    ui.add_space(8.0);
-                    let s = &mut app.profile;
-                    row(ui, &p, "Typing font", "The lesson text's typeface.", |ui| {
-                        let opts: Vec<_> = TypingFont::ALL.iter().map(|f| (*f, f.label())).collect();
-                        dirty |= segmented(ui, &p, &mut s.typing_font, &opts);
+                });
+                ui.add_space(14.0);
+
+                card(ui, &p, |ui| {
+                    ui.set_width(width - 40.0);
+                    ui.label(eyebrow(&p, "Typing font & caret"));
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
+                        let avail = ui.available_width() - 1.0;
+                        let cols = ((avail + 12.0) / 242.0).floor().max(1.0);
+                        let card_w = ((avail + 12.0) / cols - 12.0).floor();
+                        for &f in TypingFont::ALL {
+                            if font_card(ui, &p, f, app.profile.typing_font == f, card_w) {
+                                app.profile.typing_font = f;
+                                dirty = true;
+                            }
+                        }
                     });
+                    ui.add_space(10.0);
+                    ui.label(
+                        muted(&p, "Try it: click the box and type. It uses your font, size, caret, mistakes mode and key sound.")
+                            .size(12.5),
+                    );
+                    demo(app, ui, width - 40.0);
+                    ui.add_space(10.0);
+                    let s = &mut app.profile;
                     row(ui, &p, "Text size", "Size of the lesson text.", |ui| {
                         dirty |= ui
                             .add(
@@ -208,6 +228,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.add_space(14.0);
 
                 let mut sound_changed = false;
+                let mut preview = false;
                 card(ui, &p, |ui| {
                     ui.set_width(width - 40.0);
                     ui.label(eyebrow(&p, "Typing"));
@@ -220,20 +241,45 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         ui,
                         &p,
                         "Key sounds",
-                        "A soft click for each key, a lower one for a mistake.",
-                        |ui| {
-                            if ui.checkbox(&mut s.sound, "").changed() {
+                        "A sound for each key, a different one for a mistake.",
+                        |_| {},
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        let opts: Vec<_> =
+                            SoundStyle::ALL.iter().map(|c| (*c, c.label())).collect();
+                        if segmented(ui, &p, &mut s.sound, &opts) {
+                            dirty = true;
+                            sound_changed = true;
+                            preview = s.sound != SoundStyle::Off;
+                        }
+                    });
+                    if s.sound != SoundStyle::Off {
+                        ui.add_space(6.0);
+                        row(ui, &p, "Volume", "", |ui| {
+                            let r = ui.add(
+                                egui::Slider::new(&mut s.sound_volume, 0..=100).suffix(" %"),
+                            );
+                            if r.changed() {
                                 dirty = true;
                                 sound_changed = true;
                             }
-                        },
-                    );
-                    if let Some(e) = app.sound.error.as_ref().filter(|_| app.profile.sound) {
+                            preview |= r.drag_stopped() || (r.changed() && !r.dragged());
+                        });
+                    }
+                    if let Some(e) = app
+                        .sound
+                        .error
+                        .as_ref()
+                        .filter(|_| app.profile.sound != SoundStyle::Off)
+                    {
                         ui.label(RichText::new(format!("Sound unavailable: {e}")).color(p.error).size(12.5));
                     }
                 });
                 if sound_changed {
                     app.sync_sound();
+                }
+                if preview {
+                    app.sound.click(false);
                 }
                 if dirty {
                     app.mark_profile_dirty();
@@ -513,4 +559,132 @@ pub fn update_status(app: &mut App, ui: &mut Ui) {
             }
         }
     }
+}
+
+/// A typing font option, previewed in its own typeface.
+fn font_card(ui: &mut Ui, p: &Palette, font: TypingFont, selected: bool, w: f32) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, 72.0), Sense::click());
+    let pt = ui.painter_at(rect);
+    pt.rect_filled(rect, CornerRadius::same(12), p.bg);
+    pt.text(
+        rect.min + vec2(14.0, 10.0),
+        Align2::LEFT_TOP,
+        font.label(),
+        FontId::proportional(12.5),
+        if selected { p.accent } else { p.sub },
+    );
+    pt.text(
+        rect.min + vec2(14.0, 30.0),
+        Align2::LEFT_TOP,
+        "Typing 0O1lI {}",
+        FontId::new(19.0, super::theme::typing_family(font)),
+        p.text,
+    );
+    let stroke = if selected {
+        Stroke::new(2.0, p.accent)
+    } else if resp.hovered() {
+        Stroke::new(1.5, p.sub)
+    } else {
+        Stroke::new(1.0, p.panel_hi)
+    };
+    pt.rect_stroke(rect, CornerRadius::same(12), stroke, StrokeKind::Inside);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+}
+
+/// The live typing demo: a two-line sheet that types like a real lesson.
+fn demo(app: &mut App, ui: &mut Ui, width: f32) {
+    use crate::app::Demo;
+    use crate::session::{KeyKind, RunState};
+    let p = app.palette;
+    let mode = app.profile.error_mode;
+    if app.demo.as_ref().is_none_or(|d| d.mode != mode) {
+        app.demo = Some(Demo::new(mode));
+    }
+    let font_size = app.profile.font_size.clamp(14.0, 64.0);
+    let line_h = font_size * 1.55;
+    let pad = vec2(22.0, 16.0);
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(width, 2.0 * line_h + 2.0 * pad.y), Sense::click());
+    if resp.clicked() {
+        resp.request_focus();
+    }
+    let focused = resp.has_focus();
+    // Keys go to the demo only while it has focus.
+    if focused {
+        let events = ui.input(|i| i.events.clone());
+        let sound_on = app.profile.sound != SoundStyle::Off;
+        let d = app.demo.as_mut().expect("demo exists");
+        for e in events {
+            match e {
+                egui::Event::Text(t) => {
+                    for c in t.chars() {
+                        d.key(KeyKind::Text(c), &app.sound, sound_on);
+                    }
+                }
+                egui::Event::Key {
+                    key: egui::Key::Backspace,
+                    pressed: true,
+                    ..
+                } => d.key(KeyKind::Backspace, &app.sound, sound_on),
+                egui::Event::Key {
+                    key: egui::Key::Escape,
+                    pressed: true,
+                    ..
+                } => {
+                    *d = Demo::new(mode);
+                    resp.surrender_focus();
+                }
+                _ => {}
+            }
+        }
+    }
+    let d = app.demo.as_ref().expect("demo exists");
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(14), p.bg);
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(14),
+        if focused {
+            Stroke::new(1.5, p.accent)
+        } else {
+            Stroke::new(1.0, p.panel_hi)
+        },
+        StrokeKind::Inside,
+    );
+    let look = super::typing_view::TextLook {
+        font_size,
+        family: super::theme::typing_family(app.profile.typing_font),
+        caret: app.profile.caret,
+        smooth: app.profile.smooth_caret,
+    };
+    let text_rect = rect.shrink2(pad);
+    let mask = vec![false; d.run.target().len()];
+    super::typing_view::draw_text(ui, &p, &d.run, &mask, text_rect, &look, "demo");
+    let finished = d.run.state() == RunState::Finished;
+    let hint = if !focused && !d.run.has_typed() {
+        Some("Click here and start typing".to_string())
+    } else if finished {
+        let s = crate::stats::compute(crate::app::Demo::TEXT, d.run.events());
+        Some(format!(
+            "{:.0} wpm · {:.0}% accuracy · type to go again",
+            s.wpm,
+            100.0 * s.accuracy
+        ))
+    } else {
+        None
+    };
+    if let Some(h) = hint {
+        let painter = ui.painter();
+        let r = Rect::from_center_size(rect.center(), vec2(rect.width(), rect.height()));
+        painter.rect_filled(r, CornerRadius::same(14), p.bg.gamma_multiply(0.82));
+        painter.text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            h,
+            FontId::proportional(16.0),
+            p.text,
+        );
+    }
+    resp.on_hover_cursor(egui::CursorIcon::Text);
 }
