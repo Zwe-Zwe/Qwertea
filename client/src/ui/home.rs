@@ -3,10 +3,17 @@
 //! sitting-complete screens of the calibration flow.
 
 use super::widgets::{
-    card, eyebrow, meter, metric, muted, primary_button, quiet_button, sparkline, step_tracker,
-    strong, target_chip, Step,
+    card, card_h, eyebrow, meter, metric, muted, primary_button, quiet_button, sparkline,
+    step_tracker, strong, target_chip, Step,
 };
 use crate::app::{App, Screen};
+use std::cell::Cell;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NextAction {
+    Start,
+    Recheck,
+}
 use crate::db::PendingLesson;
 use egui::{vec2, Key, RichText, Ui};
 
@@ -63,19 +70,27 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui.label(strong(greeting(app), 30.0).color(p.text));
             ui.add_space(14.0);
             let gap = 16.0;
-            let left_w = ((full - gap) * 0.6).max(320.0);
-            let right_w = (full - gap - left_w).max(240.0);
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = gap;
-                ui.vertical(|ui| {
-                    ui.set_width(left_w);
-                    next_card(app, ui, left_w);
-                });
-                ui.vertical(|ui| {
-                    ui.set_width(right_w);
-                    level_card(app, ui, right_w);
-                });
-            });
+            let action: Cell<Option<NextAction>> = Cell::new(None);
+            if full >= 760.0 {
+                super::widgets::split(
+                    ui,
+                    "home_top",
+                    full,
+                    0.6,
+                    gap,
+                    |ui, w, h| next_card(app, ui, w, h, &action),
+                    |ui, w, h| level_card(app, ui, w, h),
+                );
+            } else {
+                next_card(app, ui, full, 0.0, &action);
+                ui.add_space(gap);
+                level_card(app, ui, full, 0.0);
+            }
+            match action.take() {
+                Some(NextAction::Start) => app.start_next(),
+                Some(NextAction::Recheck) => app.refresh_queue(),
+                None => {}
+            }
             ui.add_space(gap);
             if let Some(c) = app.calib.clone().filter(|c| !c.is_complete()) {
                 card(ui, &p, |ui| {
@@ -125,16 +140,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 if full >= 900.0 {
                     super::widgets::split(
                         ui,
+                        "home_bottom",
                         full,
                         0.5,
                         gap,
-                        |ui, w| recent_card(app, ui, w),
-                        |ui, w| focus_card(app, ui, w),
+                        |ui, w, h| recent_card(app, ui, w, h),
+                        |ui, w, h| focus_card(app, ui, w, h),
                     );
                 } else {
-                    recent_card(app, ui, full);
+                    recent_card(app, ui, full, 0.0);
                     ui.add_space(gap);
-                    focus_card(app, ui, full);
+                    focus_card(app, ui, full, 0.0);
                 }
             }
         });
@@ -142,9 +158,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 }
 
 /// The last few lessons, newest first.
-fn recent_card(app: &App, ui: &mut Ui, w: f32) {
+fn recent_card(app: &App, ui: &mut Ui, w: f32, min_h: f32) -> f32 {
     let p = app.palette;
-    card(ui, &p, |ui| {
+    card_h(ui, &p, min_h, |ui| {
         ui.set_width(w - 40.0);
         ui.label(eyebrow(&p, "Recent lessons"));
         ui.add_space(2.0);
@@ -172,13 +188,14 @@ fn recent_card(app: &App, ui: &mut Ui, w: f32) {
                     ui.end_row();
                 }
             });
-    });
+    })
+    .1
 }
 
 /// The engine's current top weak letter pairs.
-fn focus_card(app: &App, ui: &mut Ui, w: f32) {
+fn focus_card(app: &App, ui: &mut Ui, w: f32, min_h: f32) -> f32 {
     let p = app.palette;
-    card(ui, &p, |ui| {
+    card_h(ui, &p, min_h, |ui| {
         ui.set_width(w - 40.0);
         ui.label(eyebrow(&p, "Focus areas"));
         ui.label(
@@ -207,7 +224,8 @@ fn focus_card(app: &App, ui: &mut Ui, w: f32) {
             })
             .collect();
         super::widgets::bar_list(ui, &p, &rows, p.accent2);
-    });
+    })
+    .1
 }
 
 fn phase_name(phase: &str) -> &str {
@@ -236,9 +254,15 @@ fn greeting(app: &App) -> String {
     }
 }
 
-fn next_card(app: &mut App, ui: &mut Ui, width: f32) {
+fn next_card(
+    app: &App,
+    ui: &mut Ui,
+    width: f32,
+    min_h: f32,
+    action: &Cell<Option<NextAction>>,
+) -> f32 {
     let p = app.palette;
-    card(ui, &p, |ui| {
+    card_h(ui, &p, min_h, |ui| {
         ui.set_width(width - 40.0);
         let Some(l) = app.next.clone() else {
             ui.horizontal(|ui| {
@@ -265,7 +289,7 @@ fn next_card(app: &mut App, ui: &mut Ui, width: f32) {
                 );
             }
             if ui.button("Check again").clicked() {
-                app.refresh_queue();
+                action.set(Some(NextAction::Recheck));
             }
             return;
         };
@@ -309,7 +333,7 @@ fn next_card(app: &mut App, ui: &mut Ui, width: f32) {
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             if primary_button(ui, &p, "Start lesson", "Enter").clicked() || start_pressed(ui) {
-                app.start_next();
+                action.set(Some(NextAction::Start));
             }
             let n = l.text.chars().count();
             ui.label(muted(
@@ -320,12 +344,13 @@ fn next_card(app: &mut App, ui: &mut Ui, width: f32) {
                 ),
             ));
         });
-    });
+    })
+    .1
 }
 
-fn level_card(app: &App, ui: &mut Ui, width: f32) {
+fn level_card(app: &App, ui: &mut Ui, width: f32, min_h: f32) -> f32 {
     let p = app.palette;
-    card(ui, &p, |ui| {
+    card_h(ui, &p, min_h, |ui| {
         ui.set_width(width - 40.0);
         ui.label(eyebrow(&p, "Your level"));
         let recent = app.history.recent(10);
@@ -367,7 +392,8 @@ fn level_card(app: &App, ui: &mut Ui, width: f32) {
             )
             .size(12.5),
         );
-    });
+    })
+    .1
 }
 
 /// Calibration phase introduction.

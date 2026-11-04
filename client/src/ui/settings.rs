@@ -276,6 +276,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     } else {
                         ui.label(muted(&p, "All changes saved."));
                     }
+                    ui.add_space(16.0);
                     ui.label(
                         muted(
                             &p,

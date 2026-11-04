@@ -1,6 +1,6 @@
 # Qwertea
 
-[![CI](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml/badge.svg)](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml) · version 1.0.0 · [changelog](CHANGELOG.md)
+[![CI](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml/badge.svg)](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml) · version 1.0.1 · [changelog](CHANGELOG.md)
 
 **A typing tutor that learns your weak spots.** Qwertea is calm and minimal: a sheet of text, a caret and a few honest numbers. But its lessons are not fixed. Each one is brewed from *your* history: the keys, letter pairs and words you get wrong or type slowly, measured against your own baseline by a statistical model that updates after every lesson.
 

@@ -3,11 +3,13 @@
 //! weakest keys, letter pairs and words from the engine's model.
 
 use super::widgets::{
-    area_chart, bar_list, card, eyebrow, keyboard, metric, muted, page, split, strong,
+    area_chart, bar_list, card, card_h, eyebrow, keyboard, metric, muted, page, split, strong,
 };
 use crate::app::App;
 use crate::db::ItemStat;
 use egui::{vec2, ScrollArea, Ui};
+
+const GAP: f32 = 16.0;
 
 fn rows(items: &[ItemStat]) -> Vec<(String, f32, String)> {
     let max = items
@@ -45,8 +47,6 @@ fn smooth(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
         .collect()
 }
 
-const GAP: f32 = 16.0;
-
 pub fn show(app: &mut App, ui: &mut Ui) {
     let p = app.palette;
     ScrollArea::vertical()
@@ -62,48 +62,62 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.add_space(GAP);
                 let h = &app.history;
                 let wpm = smooth(&h.lessons.iter().map(|l| (l.0 as f64, l.1)).collect::<Vec<_>>());
-                let acc = smooth(&h.lessons.iter().map(|l| (l.0 as f64, 100.0 * l.2)).collect::<Vec<_>>());
-                let speed_card = |ui: &mut Ui, w: f32, height: f32| {
-                    card(ui, &p, |ui| {
+                let acc = smooth(
+                    &h.lessons
+                        .iter()
+                        .map(|l| (l.0 as f64, 100.0 * l.2))
+                        .collect::<Vec<_>>(),
+                );
+                let trend = |ui: &mut Ui, w: f32, chart_h: f32, min_h: f32, speed: bool| {
+                    card_h(ui, &p, min_h, |ui| {
                         ui.set_width(w - 40.0);
-                        ui.label(eyebrow(&p, "Speed trend · 10-lesson average"));
-                        area_chart(ui, &p, vec2(w - 40.0, height), &wpm, p.accent, "wpm  ·  lessons", None);
-                    });
-                };
-                let acc_card = |ui: &mut Ui, w: f32, height: f32| {
-                    card(ui, &p, |ui| {
-                        ui.set_width(w - 40.0);
-                        ui.label(eyebrow(&p, "Accuracy trend · 10-lesson average"));
-                        area_chart(ui, &p, vec2(w - 40.0, height), &acc, p.accent2, "% first-try accuracy", None);
-                    });
+                        if speed {
+                            ui.label(eyebrow(&p, "Speed trend · 10-lesson average"));
+                            area_chart(ui, &p, vec2(w - 40.0, chart_h), &wpm, p.accent, "wpm  ·  lessons", None);
+                        } else {
+                            ui.label(eyebrow(&p, "Accuracy trend · 10-lesson average"));
+                            area_chart(ui, &p, vec2(w - 40.0, chart_h), &acc, p.accent2, "% first-try accuracy", None);
+                        }
+                    })
+                    .1
                 };
                 if full >= 1100.0 {
-                    split(ui, full, 0.5, GAP, |ui, w| speed_card(ui, w, 240.0), |ui, w| acc_card(ui, w, 240.0));
+                    split(
+                        ui,
+                        "trends",
+                        full,
+                        0.5,
+                        GAP,
+                        |ui, w, h| trend(ui, w, 240.0, h, true),
+                        |ui, w, h| trend(ui, w, 240.0, h, false),
+                    );
                 } else {
-                    speed_card(ui, full, 190.0);
+                    trend(ui, full, 190.0, 0.0, true);
                     ui.add_space(GAP);
-                    acc_card(ui, full, 130.0);
+                    trend(ui, full, 130.0, 0.0, false);
                 }
                 ui.add_space(GAP);
                 if full >= 1350.0 {
                     split(
                         ui,
+                        "keyboard",
                         full,
                         0.6,
                         GAP,
-                        |ui, w| keyboard_card(app, ui, w),
-                        |ui, w| weak_card(app, ui, w, true),
+                        |ui, w, h| keyboard_card(app, ui, w, h),
+                        |ui, w, h| weak_card(app, ui, w, true, h),
                     );
                 } else {
-                    keyboard_card(app, ui, full);
+                    keyboard_card(app, ui, full, 0.0);
                     ui.add_space(GAP);
-                    weak_card(app, ui, full, false);
+                    weak_card(app, ui, full, false, 0.0);
                 }
                 ui.add_space(GAP);
                 ui.horizontal(|ui| {
                     if ui.button("Open the full report").clicked() {
                         app.open_report();
                     }
+                    ui.add_space(8.0);
                     ui.label(
                         muted(&p, "learning curve, error types, drilled vs control items, and the insight model")
                             .size(13.0),
@@ -171,9 +185,9 @@ fn metrics(app: &App, ui: &mut Ui, full: f32) {
     });
 }
 
-fn keyboard_card(app: &App, ui: &mut Ui, w: f32) {
+fn keyboard_card(app: &App, ui: &mut Ui, w: f32, min_h: f32) -> f32 {
     let p = app.palette;
-    card(ui, &p, |ui| {
+    card_h(ui, &p, min_h, |ui| {
         ui.set_width(w - 40.0);
         ui.label(eyebrow(&p, "Your keyboard"));
         ui.label(
@@ -184,14 +198,15 @@ fn keyboard_card(app: &App, ui: &mut Ui, w: f32) {
             )
             .size(13.5),
         );
-        ui.add_space(6.0);
+        ui.add_space(10.0);
         keyboard(ui, &p, &app.layout, &app.key_weakness);
-    });
+    })
+    .1
 }
 
-fn weak_card(app: &App, ui: &mut Ui, w: f32, stacked: bool) {
+fn weak_card(app: &App, ui: &mut Ui, w: f32, stacked: bool, min_h: f32) -> f32 {
     let p = app.palette;
-    card(ui, &p, |ui| {
+    card_h(ui, &p, min_h, |ui| {
         ui.set_width(w - 40.0);
         ui.label(eyebrow(&p, "Weak spots the engine is working on"));
         ui.add_space(4.0);
@@ -223,5 +238,6 @@ fn weak_card(app: &App, ui: &mut Ui, w: f32, stacked: bool) {
             )
             .size(12.5),
         );
-    });
+    })
+    .1
 }

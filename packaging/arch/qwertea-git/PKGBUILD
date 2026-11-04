@@ -1,7 +1,7 @@
 # Maintainer: Zwe-Zwe <https://github.com/Zwe-Zwe>
 
 pkgname=qwertea-git
-pkgver=1.0.0.r0.g0000000
+pkgver=1.0.1.r0.g0000000
 pkgrel=1
 pkgdesc="Adaptive typing tutor that builds every lesson from your own weak keys and letter patterns"
 arch=('x86_64' 'aarch64')

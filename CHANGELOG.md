@@ -3,7 +3,7 @@
 All notable changes to Qwertea are listed here. The project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - candidate for 1.0.1 (branch `new_ui`)
+## [1.0.1] - 2026-11-04
 
 ### Changed
 - A new visual identity of Qwertea's own, replacing a look that was too close
@@ -27,6 +27,19 @@ All notable changes to Qwertea are listed here. The project follows
 - Progress: trend area charts, a keycap heatmap and ranked weak-spot bars.
 - Settings: theme preview cards, and an explanation for each option.
 - The HTML report uses the new palette.
+- The keyboard heatmap is drawn as a full keyboard. Every row has the same
+  width (ANSI key sizes), modifier keys are dimmed, and each scored key has a
+  thin bar showing how far it is from your baseline.
+- Responsive layout. Pages share one centred content column up to 1560 px, so
+  maximised and full-screen windows no longer leave an empty band. Wide
+  windows place cards side by side, and side-by-side cards share one height.
+- Practice home adds "Recent lessons" and "Focus areas" cards.
+
+### Fixed
+- Weak-spot lists: measured label and value widths, so text no longer runs
+  into the neighbouring column.
+- Spacing between buttons and captions on Lesson notes, Progress and
+  Settings; the rhythm-strip legend no longer runs together.
 
 ## [1.0.0] - 2026-11-03
 

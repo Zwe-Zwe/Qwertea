@@ -1,6 +1,6 @@
 [project]
 name = "qwertea-engine"
-version = "1.0.0"
+version = "1.0.1"
 description = "Qwertea analysis engine: derivation, weakness model and lesson brewing"
 requires-python = ">=3.11"
 license = "MIT"

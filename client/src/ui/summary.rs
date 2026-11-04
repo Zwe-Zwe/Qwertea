@@ -3,7 +3,7 @@
 //! trained, and the details.
 
 use super::widgets::{
-    card, chip, eyebrow, meter, muted, primary_button, quiet_button, rhythm_strip, strong,
+    card, card_h, chip, eyebrow, meter, muted, primary_button, quiet_button, rhythm_strip, strong,
     target_chip,
 };
 use crate::app::{App, Screen};
@@ -68,8 +68,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 ui.horizontal(|ui| {
                     ui.label(eyebrow(&p, "Rhythm · speed of each word"));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        ui.spacing_mut().item_spacing.x = 10.0;
                         ui.label(RichText::new("slip").size(12.0).color(p.error));
                         ui.label(RichText::new("clean").size(12.0).color(p.accent));
+                        ui.add_space(4.0);
                         ui.label(muted(&p, "dashes: lesson average  ·  bars:").size(12.0));
                     });
                 });
@@ -78,12 +81,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             });
             ui.add_space(14.0);
 
-            let full_w = full;
-            ui.allocate_ui(egui::vec2(full_w, 0.0), |ui| ui.columns(2, |cols| {
+            super::widgets::split(ui, "notes", full, 0.5, 16.0, |ui, w, min_h| {
                 {
-                    let ui = &mut cols[0];
-                    card(ui, &p, |ui| {
-                        ui.set_width(ui.available_width());
+                    card_h(ui, &p, min_h, |ui| {
+                        ui.set_width(w - 40.0);
                         ui.label(eyebrow(&p, "What this lesson trained"));
                         let targets = lesson.targets();
                         if targets.is_empty() {
@@ -91,6 +92,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                 &p,
                                 if lesson.is_calibration() {
                                     "A calibration lesson: it measures your baseline, so it has no targets yet."
+                                } else if lesson.phase == "probe" {
+                                    "A checkpoint: the same passage every time, so progress is comparable. No targets."
                                 } else {
                                     "General practice: no specific targets."
                                 },
@@ -127,12 +130,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                 }
                             });
                         }
-                    });
+                    })
+                    .1
                 }
+            }, |ui, w, min_h| {
                 {
-                    let ui = &mut cols[1];
-                    card(ui, &p, |ui| {
-                        ui.set_width(ui.available_width());
+                    card_h(ui, &p, min_h, |ui| {
+                        ui.set_width(w - 40.0);
                         ui.label(eyebrow(&p, "Details"));
                         Grid::new("details").num_columns(2).spacing([28.0, 6.0]).show(ui, |ui| {
                             let mut row = |k: &str, v: String| {
@@ -156,15 +160,18 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                 }
                             });
                         }
-                    });
+                    })
+                    .1
                 }
-            }));
+            });
             ui.add_space(18.0);
             ui.horizontal(|ui| {
                 let label = if app.next.is_some() { "Next lesson" } else { "Brewing next…" };
                 if primary_button(ui, &p, label, "Enter").clicked() {
                     go_next = true;
                 }
+                ui.add_space(12.0);
+                ui.add_space(12.0);
                 if quiet_button(ui, &p, "back to practice  ·  Esc").clicked() {
                     go_home = true;
                 }

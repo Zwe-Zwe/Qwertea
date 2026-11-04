@@ -32,37 +32,67 @@ pub fn page<R>(ui: &mut Ui, max_w: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
 /// Two columns side by side: `ratio` of the width (minus `gap`) on the left.
 pub fn split(
     ui: &mut Ui,
+    id_salt: &str,
     total: f32,
     ratio: f32,
     gap: f32,
-    left: impl FnOnce(&mut Ui, f32),
-    right: impl FnOnce(&mut Ui, f32),
+    left: impl FnOnce(&mut Ui, f32, f32) -> f32,
+    right: impl FnOnce(&mut Ui, f32, f32) -> f32,
 ) {
+    // Both columns get the height of the taller one from the previous frame,
+    // so side-by-side cards line up. Each closure returns its natural height,
+    // so the row can also shrink when its content does.
+    let id = ui.make_persistent_id(("split", id_salt));
+    let row_h: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(0.0);
     let lw = ((total - gap) * ratio).floor();
     let rw = total - gap - lw;
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = gap;
-        ui.vertical(|ui| {
-            ui.set_width(lw);
-            left(ui, lw);
-        });
-        ui.vertical(|ui| {
-            ui.set_width(rw);
-            right(ui, rw);
-        });
-    });
+    let natural = ui
+        .horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            let a = ui
+                .vertical(|ui| {
+                    ui.set_width(lw);
+                    left(ui, lw, row_h)
+                })
+                .inner;
+            let b = ui
+                .vertical(|ui| {
+                    ui.set_width(rw);
+                    right(ui, rw, row_h)
+                })
+                .inner;
+            a.max(b)
+        })
+        .inner;
+    if (natural - row_h).abs() > 0.5 {
+        ui.ctx().data_mut(|d| d.insert_temp(id, natural));
+        ui.ctx().request_repaint();
+    }
 }
 
 pub fn card<R>(ui: &mut Ui, p: &Palette, add: impl FnOnce(&mut Ui) -> R) -> R {
-    egui::Frame::new()
+    card_h(ui, p, 0.0, add).0
+}
+
+/// A card at least `min_h` tall (outer height). Returns the closure's value
+/// and the card's natural outer height (before stretching).
+pub fn card_h<R>(ui: &mut Ui, p: &Palette, min_h: f32, add: impl FnOnce(&mut Ui) -> R) -> (R, f32) {
+    let pad = 20.0;
+    let out = egui::Frame::new()
         .fill(p.panel)
         .corner_radius(CornerRadius::same(16))
-        .inner_margin(egui::Margin::same(20))
+        .inner_margin(egui::Margin::same(pad as i8))
         .show(ui, |ui| {
-            ui.with_layout(egui::Layout::top_down(egui::Align::Min), add)
-                .inner
-        })
-        .inner
+            let out = ui.with_layout(egui::Layout::top_down(egui::Align::Min), add);
+            let natural = out.response.rect.height() + 2.0 * pad;
+            let r = out.inner;
+            if min_h > natural + 0.5 {
+                // Pad with exact space (set_min_height over-stretches inside frames).
+                ui.add_space(min_h - natural - ui.spacing().item_spacing.y);
+            }
+            (r, natural)
+        });
+    out.inner
 }
 
 /// Small, spaced, upper-case section label.
@@ -96,34 +126,45 @@ pub fn metric(ui: &mut Ui, p: &Palette, label: &str, value: &str, unit: &str, si
     });
 }
 
+/// A pill drawn as a single widget, so it wraps inside `horizontal_wrapped`
+/// rows (framed containers do not).
+fn pill(
+    ui: &mut Ui,
+    text: &str,
+    size: f32,
+    color: Color32,
+    fill: Color32,
+    stroke: Stroke,
+) -> Response {
+    let font = FontId::monospace(size);
+    let galley = ui.fonts_mut(|f| f.layout_no_wrap(text.to_owned(), font, color));
+    let pad = vec2(10.0, 4.0);
+    let (rect, resp) = ui.allocate_exact_size(galley.size() + 2.0 * pad, Sense::hover());
+    let pt = ui.painter();
+    pt.rect_filled(rect, CornerRadius::same(255), fill);
+    if stroke.width > 0.0 {
+        pt.rect_stroke(rect, CornerRadius::same(255), stroke, StrokeKind::Inside);
+    }
+    pt.galley(rect.min + pad, galley, color);
+    resp
+}
+
 /// A training-target pill (the lesson's focus items use the secondary colour).
 pub fn target_chip(ui: &mut Ui, p: &Palette, text: &str) -> Response {
     let shown = text.replace(' ', "·").replace('\n', "↵");
-    egui::Frame::new()
-        .fill(p.accent2.gamma_multiply(0.16))
-        .stroke(Stroke::new(1.0, p.accent2.gamma_multiply(0.55)))
-        .corner_radius(CornerRadius::same(255))
-        .inner_margin(egui::Margin::symmetric(10, 3))
-        .show(ui, |ui| {
-            ui.add(
-                egui::Label::new(RichText::new(shown).monospace().size(14.5).color(p.accent2))
-                    .extend(),
-            );
-        })
-        .response
+    pill(
+        ui,
+        &shown,
+        14.5,
+        p.accent2,
+        p.accent2.gamma_multiply(0.16),
+        Stroke::new(1.0, p.accent2.gamma_multiply(0.55)),
+    )
 }
 
 /// A neutral pill.
 pub fn chip(ui: &mut Ui, p: &Palette, text: &str) {
-    egui::Frame::new()
-        .fill(p.panel_hi)
-        .corner_radius(CornerRadius::same(255))
-        .inner_margin(egui::Margin::symmetric(10, 3))
-        .show(ui, |ui| {
-            ui.add(
-                egui::Label::new(RichText::new(text).monospace().size(14.0).color(p.text)).extend(),
-            );
-        });
+    pill(ui, text, 14.0, p.text, p.panel_hi, Stroke::NONE);
 }
 
 pub fn primary_button(ui: &mut Ui, p: &Palette, text: &str, hint: &str) -> Response {
@@ -412,32 +453,54 @@ pub fn bar_list(ui: &mut Ui, p: &Palette, rows: &[(String, f32, String)], color:
         return;
     }
     let width = ui.available_width();
-    let longest = rows.iter().map(|r| r.0.chars().count()).max().unwrap_or(2);
-    let label_w = (longest as f32 * 9.3 + 12.0).clamp(40.0, width * 0.4);
+    let label_font = FontId::monospace(15.0);
+    let right_font = FontId::proportional(12.5);
+    let measure = |t: &str, f: &FontId| {
+        ui.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(t.to_owned(), f.clone(), p.text)
+                .size()
+                .x
+        })
+    };
+    let label_w = rows
+        .iter()
+        .map(|r| measure(&r.0.replace(' ', "·"), &label_font))
+        .fold(0.0, f32::max)
+        + 12.0;
+    let right_w = rows
+        .iter()
+        .map(|r| measure(&r.2, &right_font))
+        .fold(0.0, f32::max)
+        + 12.0;
+    // Leave a gutter on the right so neighbouring columns never touch.
+    let gutter = 14.0;
     for (label, v, right) in rows {
         let (rect, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());
         let pt = ui.painter_at(rect);
-        let right_w = 74.0;
         pt.text(
             pos2(rect.left(), rect.center().y),
             Align2::LEFT_CENTER,
             label.replace(' ', "·"),
-            FontId::monospace(15.0),
+            label_font.clone(),
             p.text,
         );
         let track = Rect::from_min_max(
             pos2(rect.left() + label_w, rect.center().y - 4.0),
-            pos2(rect.right() - right_w, rect.center().y + 4.0),
+            pos2(
+                (rect.right() - gutter - right_w).max(rect.left() + label_w + 20.0),
+                rect.center().y + 4.0,
+            ),
         );
         pt.rect_filled(track, CornerRadius::same(4), p.panel_hi);
         let mut fill = track;
         fill.set_width(track.width() * v.clamp(0.02, 1.0));
         pt.rect_filled(fill, CornerRadius::same(4), color);
         pt.text(
-            pos2(rect.right(), rect.center().y),
+            pos2(rect.right() - gutter, rect.center().y),
             Align2::RIGHT_CENTER,
             right,
-            FontId::proportional(12.5),
+            right_font.clone(),
             p.sub,
         );
     }

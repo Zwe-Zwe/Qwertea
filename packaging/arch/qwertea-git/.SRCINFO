@@ -1,6 +1,6 @@
 pkgbase = qwertea-git
 	pkgdesc = Adaptive typing tutor that builds every lesson from your own weak keys and letter patterns
-	pkgver = 1.0.0.r0.g0000000
+	pkgver = 1.0.1.r0.g0000000
 	pkgrel = 1
 	url = https://github.com/Zwe-Zwe/Qwertea
 	arch = x86_64
