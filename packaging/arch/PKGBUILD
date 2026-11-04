@@ -1,8 +1,8 @@
 # Maintainer: Zwe-Zwe <https://github.com/Zwe-Zwe>
 
 pkgname=qwertea
-pkgver=1.0.1
-pkgrel=2
+pkgver=1.0.2
+pkgrel=1
 pkgdesc="Adaptive typing tutor that builds every lesson from your own weak keys and letter patterns"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Zwe-Zwe/Qwertea"
@@ -12,7 +12,7 @@ license=('MIT')
 # still optimised by cargo's release profile.
 options=('!lto')
 depends=(
-  'gcc-libs' 'glibc'
+  'gcc-libs' 'glibc' 'alsa-lib'
   'libxkbcommon' 'libxkbcommon-x11'
   'vulkan-icd-loader'
   'hicolor-icon-theme'
@@ -25,9 +25,11 @@ optdepends=(
   'mesa: OpenGL fallback renderer'
   'wayland: native Wayland window'
   'xdg-utils: open the HTML report in your browser'
+  'curl: check for new versions from inside the app'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('b1a97bb201fd14f0a3b84a1c00622c9dcfc819f021e56ad06647f16c7d987d58')
+# Replace SKIP with the real checksum (updpkgsums) once the v1.0.2 tag exists.
+sha256sums=('SKIP')
 
 _srcdir() { echo "$srcdir/Qwertea-$pkgver"; }
 

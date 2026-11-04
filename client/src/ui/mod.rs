@@ -196,12 +196,15 @@ fn sidebar(app: &mut App, ui: &mut Ui) {
                 .size(11.5)
                 .color(p.sub),
         );
-        if matches!(
-            app.updater.state(),
-            crate::update::State::Available { .. } | crate::update::State::Installed { .. }
-        ) {
+        let badge = match app.updater.state() {
+            crate::update::State::Available { .. } => Some("Update available"),
+            crate::update::State::Installing { .. } => Some("Updating…"),
+            crate::update::State::Installed { .. } => Some("Restart to update"),
+            _ => None,
+        };
+        if let Some(badge) = badge {
             let r = ui.add(
-                egui::Button::new(RichText::new("Update available").size(12.5).color(p.bg))
+                egui::Button::new(RichText::new(badge).size(12.5).color(p.bg))
                     .fill(p.accent2)
                     .corner_radius(CornerRadius::same(8)),
             );

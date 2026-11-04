@@ -3,6 +3,48 @@
 All notable changes to Qwertea are listed here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-11-04
+
+### Added
+- **Profiles.** Each person gets their own progress, lessons, model, theme and
+  settings (one database per profile).
+  - The Profile screen shows today's practice against a daily goal, a streak,
+    and speed and accuracy goals.
+  - Switch, create, rename and delete profiles there, and export or import a
+    profile as one `.qwertea` file.
+  - Your existing data becomes the first profile.
+- **Typing settings,** saved to the profile:
+  - typing font: Atkinson Mono, Hack or proportional;
+  - caret: underline, block or bar, with an optional smooth caret;
+  - live stats: full, time and words, or hidden;
+  - mistakes: move on, stop on error, or fix before the next word;
+  - lesson length: short, medium, long or a custom number of characters;
+  - capital letters, punctuation and numbers on or off. New lessons follow
+    within seconds, and calibration is unchanged.
+- **Key sounds** (optional): a soft click per key, lower for a mistake.
+- **In-app updates.** Qwertea checks GitHub for a newer version at start-up.
+  - A source install updates itself with one click, then restarts.
+  - An Arch package install gets the command to copy and a link to the
+    release notes.
+
+### Changed
+- Settings save automatically; there is no Save button.
+- `config.toml` holds only this computer's settings, plus a new `[updates]`
+  section.
+
+### Fixed
+- **WPM, timer and word counter** (reported by testers):
+  - the clock now starts at your first keystroke, not when the screen opens;
+  - the live WPM uses the same formula and clock as the result, so the two
+    agree when you finish;
+  - the word counter shows finished words out of the total;
+  - stop-on-error lessons are scored correctly;
+  - the engine's timing matches the app's.
+
+  A hand-worked golden lesson checks all of this in both programs.
+- Stopping the engine now stops the Python process too, not only the `uv`
+  launcher. A stale pid file is cleared.
+
 ## [1.0.1] - 2026-11-04
 
 ### Changed

@@ -164,3 +164,34 @@ The 1.0.0 interface was too close to an existing typing site: the colours, the l
 - **Results:** compared against the user's own history, not shown as bare numbers. A per-word rhythm strip and per-target outcomes replace the per-second line chart.
 
 Old theme names in existing configs map to the new palettes.
+
+## D27: One timing definition everywhere (1.0.2)
+Testers reported that the live WPM, the timer and the word counter did not agree with the results. The causes were: the clock started when the typing screen opened, not at the first key; the live number used a different formula from the result; the engine capped key flights differently; and stop-on-error lessons were replayed by counting keys, not by the position each key was typed at. Now:
+- **Clock:** from the first text keystroke to the last one (or to now while typing). Paused time is excluded. Time spent reading before the first key is not counted.
+- **WPM** = characters correct at the end ÷ 5 per minute of that clock. **Raw WPM** counts every text keystroke.
+- **The live WPM at the moment you finish equals the result.** Both use `LessonRun`'s clock and the same formula.
+- **Replay** uses each event's stored `target_idx`, so stop-on-error and fix-before-next-word lessons are scored by where each key landed.
+- **Words** is the number of whitespace-separated words of the text that are fully typed.
+
+`testdata/wpm_golden.json` is a hand-worked lesson ("the cat", with an error, a correction and a 5-second pause) with its expected numbers. Both the Rust client (`stats.rs`) and the Python engine (`derive.lesson_timing`) are tested against it.
+
+## D28: Profiles (1.0.2)
+Several people can share one computer, each with their own progress.
+- **One database per profile.** The first profile is the existing database, so upgrading loses nothing. New profiles live in `profiles/<id>/qwertea.db` under the data directory. Separate databases keep the model, lessons, holdouts and reports apart, with no `profile_id` threaded through every table and query, and they make export a single file.
+- **Registry:** `profiles.toml` in the data directory lists the profiles (id, name, database) and the active one.
+- **Settings live in the profile.** Migration 003 adds `profile_settings (key, value)`: name, theme, text size, typing font, caret, smooth caret, live stats, mistakes mode, key sounds, lesson length, capitals / punctuation / numbers, and goals (WPM, accuracy, daily minutes). A 1.0.x database without settings is seeded from the old `[client]` values in `config.toml`. `config.toml` keeps only this computer's settings: present mode, timestamp source, keyboard device, engine autostart, update checks.
+- **One engine per profile.** The client starts the engine with `QWERTEA_DB=<profile database>`. The engine's pid file, log and report sit next to that database. Switching profile stops the old engine (SIGINT to its process group, SIGKILL after 3 s) and starts a new one.
+- **The engine reads the lesson settings.** Lesson length sets the character range; capitals, punctuation and numbers transform adaptive lessons. Each adaptive lesson records a fingerprint of the settings it was brewed with. When the settings change, pending adaptive lessons with an old fingerprint are replaced within a poll. Calibration lessons are never transformed, so they still sample every key.
+- **Settings save themselves** 0.4 s after the last change, and never while a lesson runs. The Save button is gone.
+- **Export** is `VACUUM INTO` a `.qwertea` file in ~/Downloads (a consistent copy even while the engine runs). **Import** checks that the file is a Qwertea database, then copies it in as a new profile.
+- **Streak and today's minutes** use local calendar days of `finished_at_utc` and the same per-lesson seconds as the results (D27).
+
+## D29: In-app updates (1.0.2)
+Non-technical users should not need a terminal to update.
+- **Check:** at start-up (`[updates] check = true`, on by default, with a switch in Settings), a background thread asks the GitHub API for the repository's tags with `curl` and compares the newest `vX.Y.Z` with the build's version. Pre-release tags are ignored. Nothing else is sent. `curl` avoids pulling a TLS stack into the client; it ships with Linux, macOS and Windows 10+.
+- **Source checkout** (the running binary is inside the repository): **Update now** runs `git pull --ff-only`, `cargo build --release` and `uv sync` in the background. Tools are also looked for in `~/.cargo/bin` and `~/.local/bin`, because desktop launchers often lack them on PATH. The app then offers **Restart now**, which starts the new binary after this one has shut down. A failure (local changes, no network) leaves the running version untouched and says what failed.
+- **Arch package:** pacman needs root, so the app does not update itself. It shows the update command (`yay -Syu qwertea`) with a Copy button and links to the release notes.
+- **Anything else:** a link to the release page. Self-contained installers that can replace themselves are planned.
+
+## D30: Key sounds (1.0.2)
+Optional (off by default) and per profile. The key handler only increments an atomic counter (one for correct keys, one for mistakes). The audio callback (cpal) notices the change and synthesises a 35 ms click: a decaying tone plus a short noise burst, lower for a mistake. Nothing on the hot path allocates, locks or calls the audio system, so key timing is unaffected. The output stream is opened when sounds are switched on, never while typing. Builds without the default `sound` feature have no audio dependency.

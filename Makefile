@@ -53,4 +53,4 @@ fmt:
 
 ## Delete your local typing data (asks first).
 clean-data:
-	@read -p "Delete data/ (all your typing history)? [y/N] " a && [ "$$a" = y ] && rm -rf data/qwertea.db* data/reports data/engine.* || echo "kept"
+	@read -p "Delete data/ (all your typing history)? [y/N] " a && [ "$$a" = y ] && rm -rf data/qwertea.db* data/reports data/engine.* data/profiles data/profiles.toml || echo "kept"

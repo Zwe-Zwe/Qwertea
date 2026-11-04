@@ -487,6 +487,7 @@ pub fn update_status(app: &mut App, ui: &mut Ui) {
         }
         UpdateState::Installed { version } => {
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 14.0;
                 ui.label(
                     RichText::new(format!("Qwertea {version} is installed."))
                         .color(p.good)

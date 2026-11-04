@@ -1,6 +1,6 @@
 [package]
 name = "qwertea-client"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 rust-version = "1.95"
 description = "Qwertea: an adaptive typing tutor (app, UI and keystroke capture)"

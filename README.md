@@ -1,6 +1,6 @@
 # Qwertea
 
-[![CI](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml/badge.svg)](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml) · version 1.0.1 · [changelog](CHANGELOG.md)
+[![CI](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml/badge.svg)](https://github.com/Zwe-Zwe/Qwertea/actions/workflows/ci.yml) · version 1.0.2 · [changelog](CHANGELOG.md)
 
 **A typing tutor that learns your weak spots.** Qwertea is calm and minimal: a sheet of text, a caret and a few honest numbers. But its lessons are not fixed. Each one is brewed from *your* history: the keys, letter pairs and words you get wrong or type slowly, measured against your own baseline by a statistical model that updates after every lesson.
 
@@ -13,6 +13,7 @@ Everything runs locally. No accounts, no cloud, no telemetry.
 | ![Practice](docs/screenshots/home.png) | ![Lesson notes](docs/screenshots/summary.png) |
 | ![Progress](docs/screenshots/stats.png) | ![Weak spots](docs/screenshots/stats_keyboard.png) |
 | ![Chai theme](docs/screenshots/light.png) | ![Settings](docs/screenshots/settings.png) |
+| ![Profile](docs/screenshots/profile.png) | |
 
 ## Features
 
@@ -35,7 +36,17 @@ Everything runs locally. No accounts, no cloud, no telemetry.
   - whether drilling actually helps, measured against held-out control items;
   - an explainable LightGBM model of what drives your errors and latency.
 - **Accurate timing:** keystrokes are timestamped before the UI touches them, and kernel timestamps are optional on Linux. See [docs/timing-validation.md](docs/timing-validation.md).
-- **Four tea themes** (Sencha, Chai, Earl Grey, Oolong) and Atkinson Hyperlegible type. Adjustable text size and an optional stop-on-error mode.
+- **Profiles:** everyone on the computer gets their own progress, lessons, theme and settings. A daily practice goal and a streak; speed and accuracy goals; export a profile to one file and import it elsewhere.
+- **Typing your way** (per profile):
+  - three fonts, three caret styles and an optional smooth caret;
+  - live stats in full, time and words only, or hidden;
+  - mistakes: move on, stop on error, or fix before the next word;
+  - short, medium, long or custom lessons;
+  - capitals, punctuation and numbers on or off;
+  - optional key sounds.
+- **Honest numbers:** the clock runs from your first keystroke to your last, with pauses excluded, and the live WPM equals the final result. See [D27](docs/decisions.md).
+- **Updates from inside the app:** Qwertea tells you when a new version is out. A source install updates itself with one click.
+- **Four tea themes** (Sencha, Chai, Earl Grey, Oolong) and Atkinson Hyperlegible type.
 
 ## Install
 
@@ -71,13 +82,22 @@ cd client
 cargo run --release --bin qwertea
 ```
 
-**Linux packages:** winit and wgpu need the usual desktop libraries, e.g. on Debian/Ubuntu `libxkbcommon-x11-0`, `libwayland-client0` and a Vulkan or OpenGL driver (`mesa-vulkan-drivers`). They are present on almost every desktop install.
+**Linux packages:** key sounds need ALSA (`libasound2-dev` to build on Debian/Ubuntu, `alsa-lib` on Arch); build with `--no-default-features` to leave sound out. winit and wgpu need the usual desktop libraries, e.g. on Debian/Ubuntu `libxkbcommon-x11-0`, `libwayland-client0` and a Vulkan or OpenGL driver (`mesa-vulkan-drivers`). They are present on almost every desktop install.
+
+### Updating
+
+Qwertea checks for a new version when it starts and shows **Update available** in the sidebar (Settings → Updates also has *Check now*).
+- **Source install:** press **Update now**. The app downloads, builds and installs the new version, then asks you to restart. No terminal needed.
+- **Arch package:** press **Copy command** and paste it into a terminal (`yay -Syu qwertea`), or update from your software manager.
+
+To turn the check off, untick it in Settings, or set `[updates] check = false` in `config.toml`.
 
 ## How to use it
 
 1. **Calibrate** (about 3 × 15 minutes). Practice shows where you are with a step tracker per sitting. Each phase has a short intro; stop between phases whenever you like, and progress is kept. If you are impatient, *skip calibration* starts adaptive lessons from whatever you have typed so far.
 2. **Practise.** Press Enter for the next lesson. *Up next* lists what it trains, each with the model's current error rate for it.
 3. **Check progress** under *Progress*, or open the *Full report*.
+4. **Profile:** set a daily goal, watch your streak, and add a profile for each person who uses the computer. Settings (theme, fonts, caret, lessons) belong to the open profile and save themselves.
 
 | Key | Action |
 |---|---|
@@ -87,7 +107,7 @@ cargo run --release --bin qwertea
 
 ## How it works
 
-Qwertea is two programs that share one SQLite database (`data/qwertea.db`):
+Qwertea is two programs that share one SQLite database per profile (`data/qwertea.db` for the first, `data/profiles/<name>/qwertea.db` for others):
 
 ```
 client/ (Rust)                         engine/ (Python)
@@ -117,18 +137,18 @@ The full design is in [QWERTEA_SPEC.md](QWERTEA_SPEC.md). Every deviation from i
 
 ## Configuration
 
-Settings changed in the app are saved to `config.toml` (comments kept). Other options:
+Theme, text size and typing settings belong to each profile and are changed in the app. They are stored in the profile's database. This computer's settings are saved to `config.toml` (comments kept):
 
 | Key | Default | Meaning |
 |---|---|---|
 | `general.layout` | `qwerty-us` | keyboard layout (data file in `engine/data/layouts/`) |
-| `client.stop_on_error` | `false` | caret waits for the right key |
 | `client.present_mode` | `mailbox` | `mailbox` / `immediate` / `fifo` |
 | `client.timestamp_source` | `winit` | `evdev` for kernel timestamps (Linux, see below) |
 | `lesson.accuracy_target` | `[0.92, 0.96]` | difficulty control band |
 | `lesson.lesson_chars` | `[150, 300]` | lesson length range |
 | `calibration.sittings` | `3` | 1–3 calibration sittings |
 | `engine.autostart` | `true` | start the engine with the app |
+| `updates.check` | `true` | look for a newer version at start-up |
 
 ### Kernel timestamps (Linux, optional)
 
@@ -177,7 +197,7 @@ data/     your local database, report and logs when run from a checkout (git-ign
 
 ## Privacy
 
-Your typing data lives on your computer and is never sent anywhere: in `~/.local/share/qwertea/` for an installed copy, or in `data/` in a source checkout (delete it with `make clean-data`).
+Your typing data lives on your computer and is never sent anywhere: in `~/.local/share/qwertea/` for an installed copy, or in `data/` in a source checkout (delete it with `make clean-data`). The only network request is the optional update check, which asks GitHub for the list of version tags and sends nothing about you.
 
 ## Licence
 
