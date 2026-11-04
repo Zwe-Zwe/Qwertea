@@ -1,7 +1,7 @@
 pkgbase = qwertea
 	pkgdesc = Adaptive typing tutor that builds every lesson from your own weak keys and letter patterns
 	pkgver = 1.0.1
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/Zwe-Zwe/Qwertea
 	arch = x86_64
 	arch = aarch64
@@ -27,6 +27,7 @@ pkgbase = qwertea
 	optdepends = mesa: OpenGL fallback renderer
 	optdepends = wayland: native Wayland window
 	optdepends = xdg-utils: open the HTML report in your browser
+	options = !lto
 	source = qwertea-1.0.1.tar.gz::https://github.com/Zwe-Zwe/Qwertea/archive/refs/tags/v1.0.1.tar.gz
 	sha256sums = b1a97bb201fd14f0a3b84a1c00622c9dcfc819f021e56ad06647f16c7d987d58
 

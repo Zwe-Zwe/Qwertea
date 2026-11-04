@@ -7,6 +7,10 @@ pkgdesc="Adaptive typing tutor that builds every lesson from your own weak keys 
 arch=('x86_64' 'aarch64')
 url="https://github.com/Zwe-Zwe/Qwertea"
 license=('MIT')
+# makepkg's LTO flags make GCC emit LTO bitcode for the bundled SQLite (C),
+# which rust-lld cannot link ("undefined symbol: sqlite3_*"). Rust code is
+# still optimised by cargo's release profile.
+options=('!lto')
 depends=(
   'gcc-libs' 'glibc'
   'libxkbcommon' 'libxkbcommon-x11'

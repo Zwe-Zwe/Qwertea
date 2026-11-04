@@ -30,6 +30,7 @@ pkgbase = qwertea-git
 	optdepends = xdg-utils: open the HTML report in your browser
 	provides = qwertea
 	conflicts = qwertea
+	options = !lto
 	source = qwertea-git::git+https://github.com/Zwe-Zwe/Qwertea.git
 	sha256sums = SKIP
 

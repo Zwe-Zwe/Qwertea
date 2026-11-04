@@ -30,6 +30,14 @@ The explainable insight model in the report needs `python-lightgbm` from the AUR
 yay -S python-lightgbm      # optional
 ```
 
+## Troubleshooting
+
+**`rust-lld: error: undefined symbol: sqlite3_…` during `build()`**
+Fixed in `qwertea 1.0.1-2`. makepkg's link-time-optimisation flags make GCC
+emit LTO bitcode for the bundled SQLite, which Rust's linker cannot read, so
+the PKGBUILDs set `options=('!lto')`. If you hit it, update the PKGBUILD and
+rebuild from a clean source tree: `makepkg -Csi`.
+
 ## Publishing to the AUR (maintainer)
 
 The AUR needs an account with your SSH key added under *My Account*.
